@@ -8,6 +8,8 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsMenu = document.getElementById('settingsMenu');
 const userAgentInput = document.getElementById('userAgentInput');
 const entryInput = document.getElementById('entryInput');
+const backBtn = document.getElementById('backBtn');
+const forwardBtn = document.getElementById('forwardBtn');
 const fileTree = document.getElementById('fileTree');
 const filePanel = document.getElementById('filePanel');
 const previewPanel = document.getElementById('previewPanel');
@@ -34,12 +36,31 @@ let currentPreviewTarget = '';
 
 let progressTimer = null;
 let progressValue = 0;
-
 let pauseMask = null;
+const hookedDocs = new WeakSet();
 
 const mediaElements = new Set();
 const mediaStateMap = new WeakMap();
 const animationMap = new WeakMap();
+
+const previewHistory = [];
+let previewHistoryIndex = -1;
+
+function updateNavButtons() {
+  backBtn.disabled = !isPreviewing || previewHistoryIndex <= 0;
+  forwardBtn.disabled = !isPreviewing || previewHistoryIndex >= previewHistory.length - 1;
+}
+
+function pushHistory(url) {
+  if (previewHistory[previewHistoryIndex] === url) {
+    updateNavButtons();
+    return;
+  }
+  previewHistory.splice(previewHistoryIndex + 1);
+  previewHistory.push(url);
+  previewHistoryIndex = previewHistory.length - 1;
+  updateNavButtons();
+}
 
 function guessMimeType(path) {
   const ext = path.split('.').pop()?.toLowerCase() || '';
@@ -62,9 +83,7 @@ function guessMimeType(path) {
 }
 
 async function ensureServiceWorker() {
-  if (!('serviceWorker' in navigator)) {
-    throw new Error('当前浏览器不支持 Service Worker，无法进行完整预览。');
-  }
+  if (!('serviceWorker' in navigator)) throw new Error('当前浏览器不支持 Service Worker，无法进行完整预览。');
   if (!swReady) {
     swReady = navigator.serviceWorker.register('./sw.js').then(async () => {
       await navigator.serviceWorker.ready;
@@ -74,12 +93,11 @@ async function ensureServiceWorker() {
 }
 
 function normalizePath(path) {
-  return path.replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+/g, '/');
+  return path.replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+$/g, '').replace(/\/+/g, '/');
 }
 
 function shouldIgnorePath(path) {
-  const normalized = normalizePath(path);
-  return normalized.split('/').includes('__MACOSX');
+  return normalizePath(path).split('/').includes('__MACOSX');
 }
 
 function appendFile(path, blob) {
@@ -101,7 +119,6 @@ async function handleUpload(fileList, options = {}) {
   if (!selected.length) return;
 
   const onlyZipInEmpty = files.size === 0 && selected.length === 1 && selected[0].name.toLowerCase().endsWith('.zip');
-
   if (onlyZipInEmpty) {
     await unzipIntoRoot(selected[0]);
   } else {
@@ -111,16 +128,13 @@ async function handleUpload(fileList, options = {}) {
       appendFile(path, file);
     }
   }
-
   renderTree();
 }
 
 async function unzipIntoRoot(zipFile) {
   if (!window.JSZip) throw new Error('ZIP 解析库尚未加载完成，请稍后重试。');
-
   const zip = await JSZip.loadAsync(zipFile);
   const entries = Object.values(zip.files).filter((entry) => !entry.dir);
-
   for (const entry of entries) {
     const content = await entry.async('blob');
     appendFile(entry.name, content);
@@ -146,7 +160,6 @@ async function syncCache() {
   const cache = await caches.open(CACHE_NAME);
   const keys = await cache.keys();
   await Promise.all(keys.map((request) => cache.delete(request)));
-
   const puts = [];
   for (const [path, blob] of files.entries()) {
     const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}__vfs__/${path}`;
@@ -178,16 +191,10 @@ function startProgress() {
   progressTrack.classList.remove('hidden');
   progressBar.style.opacity = '1';
   progressBar.style.width = `${progressValue * 100}%`;
-
   progressTimer = setInterval(() => {
-    if (progressValue >= 0.9) {
-      clearProgressTimer();
-      return;
-    }
-    const delta = (0.9 - progressValue) * (Math.random() * 0.2 + 0.08);
-    progressValue = Math.min(0.9, progressValue + delta);
+    progressValue = Math.min(0.9, progressValue + Math.max(0.01, (1 - progressValue) * 0.06));
     progressBar.style.width = `${progressValue * 100}%`;
-  }, 180);
+  }, 120);
 }
 
 function completeProgress() {
@@ -196,12 +203,12 @@ function completeProgress() {
   progressBar.style.width = '100%';
   setTimeout(() => {
     progressBar.style.opacity = '0';
+    setTimeout(() => {
+      progressTrack.classList.add('hidden');
+      progressBar.style.width = '0';
+      progressBar.style.opacity = '1';
+    }, 180);
   }, 120);
-  setTimeout(() => {
-    progressTrack.classList.add('hidden');
-    progressBar.style.width = '0';
-    progressBar.style.opacity = '1';
-  }, 320);
 }
 
 function createPauseMask() {
@@ -214,49 +221,7 @@ function createPauseMask() {
 }
 
 function setPauseMaskVisible(visible) {
-  const mask = createPauseMask();
-  mask.style.display = visible ? 'block' : 'none';
-}
-
-function enterPreviewMode() {
-  filePanel.style.width = '25%';
-  previewPanel.classList.remove('hidden');
-  splitter.classList.remove('hidden');
-  isPreviewing = true;
-  setPaused(false);
-  fullscreenBtn.textContent = '⛶';
-  showPreviewControls();
-}
-
-function stopPreview() {
-  isPreviewing = false;
-  setPaused(false);
-  exitFullscreen(false);
-  clearProgressTimer();
-  progressTrack.classList.add('hidden');
-  currentPreviewTarget = '';
-  previewFrame.src = 'about:blank';
-  previewPanel.classList.add('hidden');
-  splitter.classList.add('hidden');
-  filePanel.style.width = '100%';
-  hidePreviewControls();
-  pauseBtn.textContent = '▶︎';
-  previewFrame.classList.remove('paused');
-}
-
-function collectPlayableState(doc) {
-  mediaElements.clear();
-  if (!doc) return;
-
-  const mediaList = doc.querySelectorAll('audio, video');
-  for (const media of mediaList) {
-    const wasPlaying = !media.paused && !media.ended;
-    mediaStateMap.set(media, wasPlaying);
-    mediaElements.add(media);
-  }
-
-  const animations = typeof doc.getAnimations === 'function' ? doc.getAnimations({ subtree: true }) : [];
-  animationMap.set(doc, animations);
+  createPauseMask().style.display = visible ? 'block' : 'none';
 }
 
 function setFrameRuntimePaused(frameWindow, paused) {
@@ -266,6 +231,17 @@ function setFrameRuntimePaused(frameWindow, paused) {
   } catch {
     // ignore cross-origin message issues
   }
+}
+
+function collectPlayableState(doc) {
+  mediaElements.clear();
+  if (!doc) return;
+  doc.querySelectorAll('audio, video').forEach((media) => {
+    mediaStateMap.set(media, !media.paused && !media.ended);
+    mediaElements.add(media);
+  });
+  const animations = typeof doc.getAnimations === 'function' ? doc.getAnimations({ subtree: true }) : [];
+  animationMap.set(doc, animations);
 }
 
 function setPaused(paused) {
@@ -283,28 +259,14 @@ function setPaused(paused) {
   const frameDoc = previewFrame.contentDocument;
   if (!frameDoc) {
     pauseBtn.textContent = paused ? '▶︎' : '⏸︎';
+    setFrameRuntimePaused(previewFrame.contentWindow, paused);
     return;
   }
 
   if (paused) {
     collectPlayableState(frameDoc);
-    mediaElements.forEach((media) => {
-      try {
-        media.pause();
-      } catch {
-        // ignore unsupported media pause errors
-      }
-    });
-
-    const animations = animationMap.get(frameDoc) || [];
-    animations.forEach((animation) => {
-      try {
-        animation.pause();
-      } catch {
-        // ignore non-pausable animations
-      }
-    });
-
+    mediaElements.forEach((media) => { try { media.pause(); } catch {} });
+    (animationMap.get(frameDoc) || []).forEach((animation) => { try { animation.pause(); } catch {} });
     frameDoc.documentElement.classList.add('preview-paused');
     setFrameRuntimePaused(previewFrame.contentWindow, true);
     pauseBtn.textContent = '▶︎';
@@ -314,25 +276,42 @@ function setPaused(paused) {
   frameDoc.documentElement.classList.remove('preview-paused');
   setFrameRuntimePaused(previewFrame.contentWindow, false);
   pauseBtn.textContent = '⏸︎';
-
   mediaElements.forEach((media) => {
     if (!mediaStateMap.get(media)) return;
     const playResult = media.play();
-    if (playResult && typeof playResult.catch === 'function') {
-      playResult.catch(() => {
-        // autoplay policy may block
-      });
-    }
+    if (playResult?.catch) playResult.catch(() => {});
   });
+  (animationMap.get(frameDoc) || []).forEach((animation) => { try { animation.play(); } catch {} });
+}
 
-  const animations = animationMap.get(frameDoc) || [];
-  animations.forEach((animation) => {
-    try {
-      animation.play();
-    } catch {
-      // ignore non-playable animations
-    }
-  });
+function enterPreviewMode() {
+  filePanel.style.width = '25%';
+  previewPanel.classList.remove('hidden');
+  splitter.classList.remove('hidden');
+  isPreviewing = true;
+  setPaused(false);
+  fullscreenBtn.textContent = '⛶';
+  showPreviewControls();
+  updateNavButtons();
+}
+
+function stopPreview() {
+  isPreviewing = false;
+  setPaused(false);
+  exitFullscreen(false);
+  clearProgressTimer();
+  progressTrack.classList.add('hidden');
+  currentPreviewTarget = '';
+  previewFrame.src = 'about:blank';
+  previewPanel.classList.add('hidden');
+  splitter.classList.add('hidden');
+  filePanel.style.width = '100%';
+  hidePreviewControls();
+  pauseBtn.textContent = '▶︎';
+  previewFrame.classList.remove('paused');
+  previewHistory.length = 0;
+  previewHistoryIndex = -1;
+  updateNavButtons();
 }
 
 function showFullscreenHintModal() {
@@ -345,10 +324,8 @@ function showFullscreenHintModal() {
       confirmFullscreenHintBtn.removeEventListener('click', onConfirm);
       resolve({ confirmed, dontRemind: dontRemindCheckbox.checked });
     };
-
     const onCancel = () => close(false);
     const onConfirm = () => close(true);
-
     cancelFullscreenHintBtn.addEventListener('click', onCancel);
     confirmFullscreenHintBtn.addEventListener('click', onConfirm);
   });
@@ -357,9 +334,7 @@ function showFullscreenHintModal() {
 async function maybeShowFullscreenHint() {
   if (localStorage.getItem(FULLSCREEN_HINT_KEY) === '1') return true;
   const { confirmed, dontRemind } = await showFullscreenHintModal();
-  if (dontRemind) {
-    localStorage.setItem(FULLSCREEN_HINT_KEY, '1');
-  }
+  if (dontRemind) localStorage.setItem(FULLSCREEN_HINT_KEY, '1');
   return confirmed;
 }
 
@@ -370,9 +345,7 @@ function exitFullscreen(restoreButtonLabel = true) {
   fullscreenCorners.classList.add('hidden');
   fullscreenCorners.setAttribute('aria-hidden', 'true');
   fullscreenCorners.dataset.count = '0';
-  if (restoreButtonLabel) {
-    fullscreenBtn.textContent = '⛶';
-  }
+  if (restoreButtonLabel) fullscreenBtn.textContent = '⛶';
 }
 
 async function enterFullscreen() {
@@ -397,16 +370,13 @@ function isLikelyUrl(rawValue) {
 }
 
 function looksLikeDomain(rawValue) {
-  if (!rawValue) return false;
-  if (/\s/.test(rawValue)) return false;
-  if (rawValue.includes('/')) return false;
+  if (!rawValue || /\s/.test(rawValue) || rawValue.includes('/')) return false;
   return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawValue);
 }
 
 function applyCustomUserAgentHint() {
   const customUA = userAgentInput.value.trim();
   if (!customUA) return;
-
   try {
     const frameWindow = previewFrame.contentWindow;
     if (!frameWindow) return;
@@ -415,43 +385,75 @@ function applyCustomUserAgentHint() {
       get: () => customUA
     });
   } catch {
-    // Browsers may block this operation.
+    // blocked by browser policy
   }
 }
 
-async function onPreview() {
-  const inputValue = entryInput.value.trim();
+function resolvePreviewUrl(target) {
+  if (isLikelyUrl(target)) return target;
+  const entry = normalizePath(target);
+  const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
+  return new URL(`${base}${entry}`, location.href).href;
+}
+
+async function navigatePreview(rawTarget, options = {}) {
+  const { fromHistory = false } = options;
+  const inputValue = rawTarget.trim();
   const normalizedInput = looksLikeDomain(inputValue) ? `https://${inputValue}` : inputValue;
   const target = normalizedInput || 'index.html';
 
-  if (isLikelyUrl(target)) {
+  if (!isLikelyUrl(target)) {
+    const entry = normalizePath(target);
+    if (!files.has(entry)) {
+      alert(`未找到文件：${entry}`);
+      return;
+    }
+    try {
+      await syncCache();
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+    currentPreviewTarget = entry;
+  } else {
     currentPreviewTarget = target;
-    enterPreviewMode();
-    startProgress();
-    previewFrame.src = target;
-    pauseBtn.textContent = '⏸︎';
-    return;
-  }
-
-  const entry = normalizePath(target);
-  if (!files.has(entry)) {
-    alert(`未找到文件：${entry}`);
-    return;
-  }
-
-  try {
-    await syncCache();
-  } catch (error) {
-    alert(error.message);
-    return;
   }
 
   enterPreviewMode();
-  currentPreviewTarget = entry;
   startProgress();
-  const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
-  previewFrame.src = `${base}${entry}`;
+  const url = resolvePreviewUrl(target);
+  previewFrame.src = url;
+  if (!fromHistory) pushHistory(url);
   pauseBtn.textContent = '⏸︎';
+}
+
+function attachFrameNavigationHooks() {
+  const frameDoc = previewFrame.contentDocument;
+  const frameWindow = previewFrame.contentWindow;
+  if (!frameDoc || !frameWindow || hookedDocs.has(frameDoc)) return;
+
+  frameDoc.querySelectorAll('a[target="_blank"]').forEach((anchor) => {
+    anchor.setAttribute('target', '_self');
+  });
+
+  frameDoc.addEventListener('click', (event) => {
+    const anchor = event.target.closest('a[href]');
+    if (!anchor) return;
+    const rawHref = anchor.getAttribute('href') || '';
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:')) return;
+
+    let nextUrl;
+    try {
+      nextUrl = new URL(anchor.getAttribute('href'), frameWindow.location.href).href;
+    } catch {
+      return;
+    }
+
+    event.preventDefault();
+    navigatePreview(nextUrl);
+  }, true);
+
+  hookedDocs.add(frameDoc);
 }
 
 function setupResizableSidebar() {
@@ -463,8 +465,8 @@ function setupResizableSidebar() {
     if (!isPreviewing) return;
     const rect = workspace.getBoundingClientRect();
     const x = Math.min(Math.max(clientX - rect.left, 0), rect.width);
-    const sidebarRatio = x / rect.width;
-    const clamped = Math.min(maxSidebarRatio, Math.max(minSidebarRatio, sidebarRatio));
+    const ratio = x / rect.width;
+    const clamped = Math.min(maxSidebarRatio, Math.max(minSidebarRatio, ratio));
     filePanel.style.width = `${clamped * 100}%`;
   };
 
@@ -477,8 +479,7 @@ function setupResizableSidebar() {
   });
 
   splitter.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    onDrag(event.clientX);
+    if (dragging) onDrag(event.clientX);
   });
 
   const endDrag = (event) => {
@@ -514,15 +515,13 @@ clearBtn.addEventListener('click', async () => {
 
 pauseBtn.addEventListener('click', () => {
   if (!isPreviewing) {
-    onPreview();
+    navigatePreview(entryInput.value);
     return;
   }
   setPaused(!isPaused);
 });
 
-stopBtn.addEventListener('click', () => {
-  stopPreview();
-});
+stopBtn.addEventListener('click', stopPreview);
 
 fullscreenBtn.addEventListener('click', async () => {
   if (!isPreviewing) return;
@@ -531,6 +530,24 @@ fullscreenBtn.addEventListener('click', async () => {
     return;
   }
   await enterFullscreen();
+});
+
+backBtn.addEventListener('click', () => {
+  if (previewHistoryIndex <= 0) return;
+  previewHistoryIndex -= 1;
+  previewFrame.src = previewHistory[previewHistoryIndex];
+  currentPreviewTarget = previewHistory[previewHistoryIndex];
+  updateNavButtons();
+  startProgress();
+});
+
+forwardBtn.addEventListener('click', () => {
+  if (previewHistoryIndex >= previewHistory.length - 1) return;
+  previewHistoryIndex += 1;
+  previewFrame.src = previewHistory[previewHistoryIndex];
+  currentPreviewTarget = previewHistory[previewHistoryIndex];
+  updateNavButtons();
+  startProgress();
 });
 
 settingsBtn.addEventListener('click', () => {
@@ -550,8 +567,11 @@ userAgentInput.addEventListener('input', () => {
 previewFrame.addEventListener('load', () => {
   applyCustomUserAgentHint();
   completeProgress();
-  if (!isPaused) return;
-  setPaused(true);
+  attachFrameNavigationHooks();
+  const loadedUrl = previewFrame.src;
+  if (isPreviewing && !previewHistory.length) pushHistory(loadedUrl);
+  updateNavButtons();
+  if (isPaused) setPaused(true);
 });
 
 fullscreenCorners.addEventListener('click', (event) => {
@@ -559,17 +579,15 @@ fullscreenCorners.addEventListener('click', (event) => {
   if (!target || !isFullscreen) return;
   const count = Number(fullscreenCorners.dataset.count || '0') + 1;
   fullscreenCorners.dataset.count = String(count);
-  if (count >= 4) {
-    exitFullscreen();
-  }
+  if (count >= 4) exitFullscreen();
 });
 
 const savedUA = localStorage.getItem(USER_AGENT_KEY);
-if (savedUA) {
-  userAgentInput.value = savedUA;
-}
+if (savedUA) userAgentInput.value = savedUA;
 
 setupResizableSidebar();
 pauseBtn.textContent = '▶︎';
+pauseBtn.classList.add('is-resume');
 stopBtn.textContent = '⏹︎';
 renderTree();
+updateNavButtons();
