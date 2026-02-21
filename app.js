@@ -12,8 +12,11 @@ const previewPanel = document.getElementById('previewPanel');
 const previewFrame = document.getElementById('previewFrame');
 const splitter = document.getElementById('splitter');
 const workspace = document.getElementById('workspace');
-const pauseMask = document.getElementById('pauseMask');
 const fullscreenCorners = document.getElementById('fullscreenCorners');
+const fullscreenModal = document.getElementById('fullscreenModal');
+const dontRemindCheckbox = document.getElementById('dontRemindCheckbox');
+const cancelFullscreenHintBtn = document.getElementById('cancelFullscreenHintBtn');
+const confirmFullscreenHintBtn = document.getElementById('confirmFullscreenHintBtn');
 
 const files = new Map();
 const CACHE_NAME = 'html-viewer-vfs';
@@ -22,6 +25,35 @@ let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
 let isFullscreen = false;
+
+function guessMimeType(path) {
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  const table = {
+    html: 'text/html; charset=utf-8',
+    htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    mjs: 'text/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    svg: 'image/svg+xml',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    ico: 'image/x-icon',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    ogg: 'audio/ogg',
+    m4a: 'audio/mp4',
+    aac: 'audio/aac',
+    flac: 'audio/flac',
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    ogv: 'video/ogg'
+  };
+  return table[ext] || 'application/octet-stream';
+}
 
 async function ensureServiceWorker() {
   if (!('serviceWorker' in navigator)) {
@@ -96,7 +128,8 @@ async function syncCache() {
   const puts = [];
   for (const [path, blob] of files.entries()) {
     const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}__vfs__/${path}`;
-    puts.push(cache.put(url, new Response(blob)));
+    const mime = blob.type || guessMimeType(path);
+    puts.push(cache.put(url, new Response(blob, { headers: { 'Content-Type': mime } })));
   }
   await Promise.all(puts);
 }
@@ -135,16 +168,34 @@ function stopPreview() {
 
 function setPaused(paused) {
   isPaused = paused;
-  previewFrame.style.visibility = paused ? 'hidden' : 'visible';
-  pauseMask.classList.toggle('hidden', !paused);
-  pauseBtn.textContent = paused ? '继续' : '暂停';
+  previewFrame.classList.toggle('paused', paused);
+  pauseBtn.textContent = paused ? '▶︎' : '⏸︎';
+  pauseBtn.classList.toggle('is-resume', paused);
 }
 
-function maybeShowFullscreenHint() {
-  if (localStorage.getItem(FULLSCREEN_HINT_KEY) === '1') return;
+function showFullscreenHintModal() {
+  fullscreenModal.classList.remove('hidden');
+  dontRemindCheckbox.checked = false;
+  return new Promise((resolve) => {
+    const close = (confirmed) => {
+      fullscreenModal.classList.add('hidden');
+      cancelFullscreenHintBtn.removeEventListener('click', onCancel);
+      confirmFullscreenHintBtn.removeEventListener('click', onConfirm);
+      resolve({ confirmed, dontRemind: dontRemindCheckbox.checked });
+    };
 
-  const disableHint = window.confirm('全屏模式已开启。\n连续点击屏幕任意角落（左上/右上/左下/右下）4次可退出全屏。\n点击“确定”下次不再显示该提示，点击“取消”保留提示。');
-  if (disableHint) {
+    const onCancel = () => close(false);
+    const onConfirm = () => close(true);
+
+    cancelFullscreenHintBtn.addEventListener('click', onCancel);
+    confirmFullscreenHintBtn.addEventListener('click', onConfirm);
+  });
+}
+
+async function maybeShowFullscreenHint() {
+  if (localStorage.getItem(FULLSCREEN_HINT_KEY) === '1') return;
+  const { dontRemind } = await showFullscreenHintModal();
+  if (dontRemind) {
     localStorage.setItem(FULLSCREEN_HINT_KEY, '1');
   }
 }
@@ -161,7 +212,7 @@ function exitFullscreen(restoreButtonLabel = true) {
   }
 }
 
-function enterFullscreen() {
+async function enterFullscreen() {
   if (!isPreviewing) return;
   isFullscreen = true;
   document.body.classList.add('app-fullscreen');
@@ -169,7 +220,7 @@ function enterFullscreen() {
   fullscreenCorners.setAttribute('aria-hidden', 'false');
   fullscreenCorners.dataset.count = '0';
   fullscreenBtn.textContent = '退出全屏';
-  maybeShowFullscreenHint();
+  await maybeShowFullscreenHint();
 }
 
 async function onPreview() {
@@ -260,13 +311,13 @@ stopBtn.addEventListener('click', () => {
   stopPreview();
 });
 
-fullscreenBtn.addEventListener('click', () => {
+fullscreenBtn.addEventListener('click', async () => {
   if (!isPreviewing) return;
   if (isFullscreen) {
     exitFullscreen();
     return;
   }
-  enterFullscreen();
+  await enterFullscreen();
 });
 
 fullscreenCorners.addEventListener('click', (event) => {
@@ -280,4 +331,6 @@ fullscreenCorners.addEventListener('click', (event) => {
 });
 
 setupResizableSidebar();
+pauseBtn.textContent = '⏸︎';
+stopBtn.textContent = '⏹︎';
 renderTree();
