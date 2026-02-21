@@ -23,10 +23,9 @@
       <button id="clearBtn" type="button">清空</button>
       <div class="run-group">
         <input id="entryInput" type="text" value="index" placeholder="输入 html 名称（不含扩展名）" />
-        <button id="previewBtn" type="button">预览</button>
-        <button id="pauseBtn" type="button" class="hidden">暂停</button>
+        <button id="pauseBtn" type="button">▶︎</button>
         <button id="stopBtn" type="button" class="hidden">停止</button>
-        <button id="fullscreenBtn" type="button" class="hidden">全屏</button>
+        <button id="fullscreenBtn" type="button" class="hidden">⛶</button>
       </div>
     </div>
   </header>
@@ -41,14 +40,14 @@
     <div id="splitter" class="splitter hidden" aria-hidden="true"></div>
 
     <section id="previewPanel" class="preview-panel hidden">
-      <iframe id="previewFrame" title="网页预览" allow="autoplay; fullscreen"></iframe>
+      <iframe id="previewFrame" title="网页预览" allow="autoplay *; fullscreen *"></iframe>
     </section>
   </main>
 
   <div id="fullscreenModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="fullscreenModalTitle">
     <div class="modal-card">
-      <h2 id="fullscreenModalTitle">全屏提示</h2>
-      <p>全屏模式已开启。连续点击屏幕任意角落（左上/右上/左下/右下）4 次可退出全屏。</p>
+      <h2 id="fullscreenModalTitle">是否进入全屏模式？</h2>
+      <p>连续点击屏幕任意角落（左上/右上/左下/右下）4 次可退出全屏。</p>
       <label class="modal-checkbox">
         <input id="dontRemindCheckbox" type="checkbox" />
         不再提醒
