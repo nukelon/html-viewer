@@ -7,11 +7,13 @@ const fullscreenBtn = document.getElementById('fullscreenBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsMenu = document.getElementById('settingsMenu');
 const userAgentInput = document.getElementById('userAgentInput');
+const proxyInput = document.getElementById('proxyInput');
 const entryInput = document.getElementById('entryInput');
 const fileTree = document.getElementById('fileTree');
 const filePanel = document.getElementById('filePanel');
 const previewPanel = document.getElementById('previewPanel');
 const previewFrame = document.getElementById('previewFrame');
+const progressBar = document.getElementById('progressBar');
 const splitter = document.getElementById('splitter');
 const workspace = document.getElementById('workspace');
 const fullscreenCorners = document.getElementById('fullscreenCorners');
@@ -24,10 +26,14 @@ const files = new Map();
 const CACHE_NAME = 'html-viewer-vfs';
 const FULLSCREEN_HINT_KEY = 'html-viewer-hide-fullscreen-hint';
 const USER_AGENT_KEY = 'html-viewer-custom-user-agent';
+const PROXY_TEMPLATE_KEY = 'html-viewer-proxy-template';
+const DEFAULT_PROXY_TEMPLATE = 'https://corsproxy.io/?{url}';
 let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
 let isFullscreen = false;
+let pauseTimerId = null;
+let progressTimerId = null;
 
 const mediaElements = new Set();
 const mediaStateMap = new WeakMap();
@@ -139,6 +145,30 @@ async function syncCache() {
   await Promise.all(puts);
 }
 
+
+function startLoadingProgress() {
+  if (progressTimerId) clearInterval(progressTimerId);
+  let value = 0;
+  progressBar.classList.add('is-loading');
+  progressBar.style.width = '0%';
+  progressTimerId = setInterval(() => {
+    value = Math.min(92, value + Math.max(1, (92 - value) * 0.12));
+    progressBar.style.width = `${value}%`;
+  }, 120);
+}
+
+function finishLoadingProgress() {
+  if (progressTimerId) {
+    clearInterval(progressTimerId);
+    progressTimerId = null;
+  }
+  progressBar.style.width = '100%';
+  setTimeout(() => {
+    progressBar.classList.remove('is-loading');
+    progressBar.style.width = '0%';
+  }, 220);
+}
+
 function showPreviewControls() {
   stopBtn.classList.remove('hidden');
   fullscreenBtn.classList.remove('hidden');
@@ -164,6 +194,7 @@ function stopPreview() {
   setPaused(false);
   exitFullscreen(false);
   previewFrame.src = 'about:blank';
+  finishLoadingProgress();
   previewPanel.classList.add('hidden');
   splitter.classList.add('hidden');
   filePanel.style.width = '100%';
@@ -187,68 +218,91 @@ function collectPlayableState(doc) {
   animationMap.set(doc, animations);
 }
 
+function pauseWholeFrame() {
+  const frameWindow = previewFrame.contentWindow;
+  const frameDoc = previewFrame.contentDocument;
+  if (!frameWindow || !frameDoc) return;
+
+  collectPlayableState(frameDoc);
+
+  mediaElements.forEach((media) => {
+    try { media.pause(); } catch {}
+  });
+
+  const animations = animationMap.get(frameDoc) || [];
+  animations.forEach((animation) => {
+    try { animation.pause(); } catch {}
+  });
+
+  frameDoc.documentElement.classList.add('preview-paused');
+  frameDoc.querySelectorAll('*').forEach((el) => {
+    if (el && el.style) {
+      el.style.animationPlayState = 'paused';
+      el.style.transitionProperty = 'none';
+      el.style.caretColor = 'transparent';
+    }
+  });
+
+  try {
+    frameWindow.stop();
+  } catch {}
+}
+
+function resumeWholeFrame() {
+  const frameDoc = previewFrame.contentDocument;
+  if (!frameDoc) return;
+
+  frameDoc.documentElement.classList.remove('preview-paused');
+  frameDoc.querySelectorAll('*').forEach((el) => {
+    if (el && el.style) {
+      el.style.removeProperty('animation-play-state');
+      el.style.removeProperty('transition-property');
+      el.style.removeProperty('caret-color');
+    }
+  });
+
+  mediaElements.forEach((media) => {
+    if (!mediaStateMap.get(media)) return;
+    const playResult = media.play();
+    if (playResult && typeof playResult.catch === 'function') {
+      playResult.catch(() => {});
+    }
+  });
+
+  const animations = animationMap.get(frameDoc) || [];
+  animations.forEach((animation) => {
+    try { animation.play(); } catch {}
+  });
+}
+
 function setPaused(paused) {
   if (!isPreviewing && paused) return;
   isPaused = paused;
   previewFrame.classList.toggle('paused', paused);
   pauseBtn.classList.toggle('is-resume', !isPreviewing || paused);
 
+  if (pauseTimerId) {
+    clearInterval(pauseTimerId);
+    pauseTimerId = null;
+  }
+
   if (!isPreviewing) {
     pauseBtn.textContent = '▶︎';
     return;
   }
 
-  const frameDoc = previewFrame.contentDocument;
-  if (!frameDoc) {
-    pauseBtn.textContent = paused ? '▶︎' : '⏸︎';
-    return;
-  }
-
   if (paused) {
-    collectPlayableState(frameDoc);
-    mediaElements.forEach((media) => {
-      try {
-        media.pause();
-      } catch {
-        // ignore unsupported media pause errors
-      }
-    });
-
-    const animations = animationMap.get(frameDoc) || [];
-    animations.forEach((animation) => {
-      try {
-        animation.pause();
-      } catch {
-        // ignore non-pausable animations
-      }
-    });
-
-    frameDoc.documentElement.classList.add('preview-paused');
+    pauseWholeFrame();
+    pauseTimerId = setInterval(() => {
+      if (!isPaused) return;
+      pauseWholeFrame();
+    }, 120);
     pauseBtn.textContent = '▶︎';
     return;
   }
 
-  frameDoc.documentElement.classList.remove('preview-paused');
+  resumeWholeFrame();
   pauseBtn.textContent = '⏸︎';
-
-  mediaElements.forEach((media) => {
-    if (!mediaStateMap.get(media)) return;
-    const playResult = media.play();
-    if (playResult && typeof playResult.catch === 'function') {
-      playResult.catch(() => {
-        // autoplay policy may block
-      });
-    }
-  });
-
-  const animations = animationMap.get(frameDoc) || [];
-  animations.forEach((animation) => {
-    try {
-      animation.play();
-    } catch {
-      // ignore non-playable animations
-    }
-  });
 }
 
 function showFullscreenHintModal() {
@@ -303,6 +357,18 @@ async function enterFullscreen() {
   fullscreenBtn.textContent = '退出';
 }
 
+function getProxyTemplate() {
+  const template = proxyInput.value.trim();
+  return template || DEFAULT_PROXY_TEMPLATE;
+}
+
+function wrapWithProxy(rawUrl) {
+  const template = getProxyTemplate();
+  if (!template) return rawUrl;
+  const encoded = encodeURIComponent(rawUrl);
+  return template.includes('{url}') ? template.replaceAll('{url}', encoded) : `${template}${encoded}`;
+}
+
 function isLikelyUrl(rawValue) {
   try {
     const parsed = new URL(rawValue);
@@ -330,16 +396,17 @@ function applyCustomUserAgentHint() {
 
 async function onPreview() {
   const inputValue = entryInput.value.trim();
-  if (!inputValue) return;
+  const resolvedInput = inputValue || 'index.html';
 
-  if (isLikelyUrl(inputValue)) {
+  if (isLikelyUrl(resolvedInput)) {
     enterPreviewMode();
-    previewFrame.src = inputValue;
+    startLoadingProgress();
+    previewFrame.src = wrapWithProxy(resolvedInput);
     pauseBtn.textContent = '⏸︎';
     return;
   }
 
-  const entry = normalizePath(`${inputValue || 'index'}.html`);
+  const entry = normalizePath(resolvedInput);
   if (!files.has(entry)) {
     alert(`未找到文件：${entry}`);
     return;
@@ -354,6 +421,7 @@ async function onPreview() {
 
   enterPreviewMode();
   const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
+  startLoadingProgress();
   previewFrame.src = `${base}${entry}`;
   pauseBtn.textContent = '⏸︎';
 }
@@ -403,6 +471,23 @@ fileInput.addEventListener('change', async (event) => {
 });
 
 folderInput.addEventListener('change', async (event) => {
+  const selected = Array.from(event.target.files || []);
+  if (files.size === 0 && selected.length) {
+    const firstSegments = selected.map((file) => normalizePath(file.webkitRelativePath || file.name).split('/')[0]);
+    const root = firstSegments[0];
+    const shouldFlatten = root && firstSegments.every((segment) => segment === root);
+    if (shouldFlatten) {
+      for (const file of selected) {
+        const full = normalizePath(file.webkitRelativePath || file.name);
+        const flattened = normalizePath(full.split('/').slice(1).join('/'));
+        appendFile(flattened || file.name, file);
+      }
+      renderTree();
+      folderInput.value = '';
+      return;
+    }
+  }
+
   await handleUpload(event.target.files);
   folderInput.value = '';
 });
@@ -451,7 +536,12 @@ userAgentInput.addEventListener('input', () => {
   localStorage.setItem(USER_AGENT_KEY, userAgentInput.value);
 });
 
+proxyInput.addEventListener('input', () => {
+  localStorage.setItem(PROXY_TEMPLATE_KEY, proxyInput.value);
+});
+
 previewFrame.addEventListener('load', () => {
+  finishLoadingProgress();
   applyCustomUserAgentHint();
   if (!isPaused) return;
   setPaused(true);
@@ -471,6 +561,9 @@ const savedUA = localStorage.getItem(USER_AGENT_KEY);
 if (savedUA) {
   userAgentInput.value = savedUA;
 }
+
+const savedProxyTemplate = localStorage.getItem(PROXY_TEMPLATE_KEY);
+proxyInput.value = savedProxyTemplate || DEFAULT_PROXY_TEMPLATE;
 
 setupResizableSidebar();
 pauseBtn.textContent = '▶︎';

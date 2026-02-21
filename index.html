@@ -26,8 +26,10 @@
         <div id="settingsMenu" class="settings-menu hidden">
           <label for="userAgentInput">User Agent</label>
           <input id="userAgentInput" type="text" placeholder="留空使用默认（浏览器限制：仅本地预览可生效）" />
+          <label for="proxyInput">代理模板（可用 {url} 占位）</label>
+          <input id="proxyInput" type="text" placeholder="默认: https://corsproxy.io/?{url}" />
         </div>
-        <input id="entryInput" type="text" value="index" placeholder="输入 html 名称（不含扩展名）或 URL" />
+        <input id="entryInput" type="text" placeholder="输入 html 文件名（需扩展名）或 URL；留空默认 index.html" />
         <button id="pauseBtn" type="button">▶︎</button>
         <button id="stopBtn" type="button" class="hidden">停止</button>
         <button id="fullscreenBtn" type="button" class="hidden">⛶</button>
@@ -45,6 +47,7 @@
     <div id="splitter" class="splitter hidden" aria-hidden="true"></div>
 
     <section id="previewPanel" class="preview-panel hidden">
+      <div id="progressBar" class="progress-bar"></div>
       <iframe id="previewFrame" title="网页预览" allow="fullscreen *"></iframe>
     </section>
   </main>
