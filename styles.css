@@ -218,18 +218,6 @@ button {
 .file-tree li { margin: 0.2rem 0; }
 .hint { color: var(--muted); }
 
-
-.frame-warning {
-  margin: 0 0 0.65rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: 10px;
-  border: 1px solid #f59e0b;
-  background: rgba(245, 158, 11, 0.18);
-  color: #fde68a;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
 iframe {
   width: 100%;
   min-height: calc(100vh - 112px);
@@ -260,7 +248,7 @@ iframe {
 }
 
 #pauseBtn {
-  background: #2563eb;
+  background: #16a34a;
 }
 
 #pauseBtn.is-resume {
