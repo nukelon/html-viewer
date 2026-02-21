@@ -16,6 +16,7 @@ const previewPanel = document.getElementById('previewPanel');
 const previewFrame = document.getElementById('previewFrame');
 const progressTrack = document.getElementById('progressTrack');
 const progressBar = document.getElementById('progressBar');
+const frameWarning = document.getElementById('frameWarning');
 const splitter = document.getElementById('splitter');
 const workspace = document.getElementById('workspace');
 const fullscreenCorners = document.getElementById('fullscreenCorners');
@@ -33,6 +34,9 @@ let isPreviewing = false;
 let isPaused = false;
 let isFullscreen = false;
 let currentPreviewTarget = '';
+let pendingNavigationUrl = '';
+let suppressNextHistoryPush = false;
+let lastKnownFrameUrl = '';
 
 let progressTimer = null;
 let progressValue = 0;
@@ -45,6 +49,49 @@ const animationMap = new WeakMap();
 
 const previewHistory = [];
 let previewHistoryIndex = -1;
+
+function showFrameWarning(message) {
+  if (!message) {
+    frameWarning.textContent = '';
+    frameWarning.classList.add('hidden');
+    return;
+  }
+  frameWarning.textContent = message;
+  frameWarning.classList.remove('hidden');
+}
+
+function isFrameLikelyBlocked(url) {
+  return Boolean(url && /^(chrome-error:\/\/|about:blank$|data:text\/html,chromewebdata)/i.test(url));
+}
+
+function getDisplayTarget(url) {
+  if (!url) return '';
+  const base = new URL(`${location.pathname.replace(/[^/]*$/, '')}__vfs__/`, location.href).href;
+  if (url.startsWith(base)) return decodeURIComponent(url.slice(base.length));
+  return url;
+}
+
+function updateEntryInput(url) {
+  entryInput.value = getDisplayTarget(url);
+}
+
+function navigateFrame(url, options = {}) {
+  const { fromHistory = false, replaceHistory = false } = options;
+  currentPreviewTarget = url;
+  pendingNavigationUrl = url;
+  suppressNextHistoryPush = fromHistory;
+  updateEntryInput(url);
+  startProgress();
+  if (!fromHistory) {
+    if (replaceHistory && previewHistoryIndex >= 0) {
+      previewHistory[previewHistoryIndex] = url;
+      updateNavButtons();
+    } else {
+      pushHistory(url);
+    }
+  }
+  previewFrame.src = url;
+}
 
 function updateNavButtons() {
   backBtn.disabled = !isPreviewing || previewHistoryIndex <= 0;
@@ -302,6 +349,11 @@ function stopPreview() {
   clearProgressTimer();
   progressTrack.classList.add('hidden');
   currentPreviewTarget = '';
+  updateEntryInput('');
+  pendingNavigationUrl = '';
+  suppressNextHistoryPush = false;
+  lastKnownFrameUrl = '';
+  showFrameWarning('');
   previewFrame.src = 'about:blank';
   previewPanel.classList.add('hidden');
   splitter.classList.add('hidden');
@@ -420,38 +472,20 @@ async function navigatePreview(rawTarget, options = {}) {
   }
 
   enterPreviewMode();
-  startProgress();
+  showFrameWarning('');
   const url = resolvePreviewUrl(target);
-  previewFrame.src = url;
-  if (!fromHistory) pushHistory(url);
+  navigateFrame(url, { fromHistory });
   pauseBtn.textContent = '⏸︎';
 }
 
 function attachFrameNavigationHooks() {
   const frameDoc = previewFrame.contentDocument;
-  const frameWindow = previewFrame.contentWindow;
-  if (!frameDoc || !frameWindow || hookedDocs.has(frameDoc)) return;
+  if (!frameDoc || hookedDocs.has(frameDoc)) return;
 
-  frameDoc.querySelectorAll('a[target="_blank"]').forEach((anchor) => {
-    anchor.setAttribute('target', '_self');
+  frameDoc.querySelectorAll('a[target]').forEach((anchor) => {
+    anchor.removeAttribute('target');
+    anchor.rel = 'noopener noreferrer';
   });
-
-  frameDoc.addEventListener('click', (event) => {
-    const anchor = event.target.closest('a[href]');
-    if (!anchor) return;
-    const rawHref = anchor.getAttribute('href') || '';
-    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:')) return;
-
-    let nextUrl;
-    try {
-      nextUrl = new URL(anchor.getAttribute('href'), frameWindow.location.href).href;
-    } catch {
-      return;
-    }
-
-    event.preventDefault();
-    navigatePreview(nextUrl);
-  }, true);
 
   hookedDocs.add(frameDoc);
 }
@@ -535,19 +569,19 @@ fullscreenBtn.addEventListener('click', async () => {
 backBtn.addEventListener('click', () => {
   if (previewHistoryIndex <= 0) return;
   previewHistoryIndex -= 1;
-  previewFrame.src = previewHistory[previewHistoryIndex];
-  currentPreviewTarget = previewHistory[previewHistoryIndex];
+  const historyUrl = previewHistory[previewHistoryIndex];
+  currentPreviewTarget = historyUrl;
   updateNavButtons();
-  startProgress();
+  navigateFrame(historyUrl, { fromHistory: true });
 });
 
 forwardBtn.addEventListener('click', () => {
   if (previewHistoryIndex >= previewHistory.length - 1) return;
   previewHistoryIndex += 1;
-  previewFrame.src = previewHistory[previewHistoryIndex];
-  currentPreviewTarget = previewHistory[previewHistoryIndex];
+  const historyUrl = previewHistory[previewHistoryIndex];
+  currentPreviewTarget = historyUrl;
   updateNavButtons();
-  startProgress();
+  navigateFrame(historyUrl, { fromHistory: true });
 });
 
 settingsBtn.addEventListener('click', () => {
@@ -568,8 +602,37 @@ previewFrame.addEventListener('load', () => {
   applyCustomUserAgentHint();
   completeProgress();
   attachFrameNavigationHooks();
-  const loadedUrl = previewFrame.src;
-  if (isPreviewing && !previewHistory.length) pushHistory(loadedUrl);
+
+  let loadedUrl = previewFrame.src;
+  try {
+    loadedUrl = previewFrame.contentWindow?.location?.href || previewFrame.src;
+  } catch {
+    loadedUrl = previewFrame.src;
+  }
+  const expectedUrl = pendingNavigationUrl;
+  pendingNavigationUrl = '';
+
+  lastKnownFrameUrl = loadedUrl || expectedUrl || lastKnownFrameUrl;
+  if (lastKnownFrameUrl) {
+    currentPreviewTarget = lastKnownFrameUrl;
+    updateEntryInput(lastKnownFrameUrl);
+  }
+
+  if (isFrameLikelyBlocked(loadedUrl) && isLikelyUrl(currentPreviewTarget || expectedUrl)) {
+    showFrameWarning('⚠️ 该网站可能禁止在 iframe 中加载（X-Frame-Options / CSP）。请改为在浏览器新标签中打开。');
+  } else {
+    showFrameWarning('');
+  }
+
+  if (!suppressNextHistoryPush && isPreviewing) {
+    if (!previewHistory.length) {
+      pushHistory(loadedUrl);
+    } else if (loadedUrl && loadedUrl !== previewHistory[previewHistoryIndex]) {
+      pushHistory(loadedUrl);
+    }
+  }
+  suppressNextHistoryPush = false;
+
   updateNavButtons();
   if (isPaused) setPaused(true);
 });
@@ -584,6 +647,16 @@ fullscreenCorners.addEventListener('click', (event) => {
 
 const savedUA = localStorage.getItem(USER_AGENT_KEY);
 if (savedUA) userAgentInput.value = savedUA;
+
+setInterval(() => {
+  if (!isPreviewing) return;
+  const observed = previewFrame.src;
+  if (!observed || observed === 'about:blank' || observed === lastKnownFrameUrl) return;
+  lastKnownFrameUrl = observed;
+  currentPreviewTarget = observed;
+  updateEntryInput(observed);
+  if (observed !== previewHistory[previewHistoryIndex]) pushHistory(observed);
+}, 900);
 
 setupResizableSidebar();
 pauseBtn.textContent = '▶︎';
