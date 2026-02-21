@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GitHub Pages 在线网页预览器</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/highlight.min.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -43,7 +45,10 @@
 
   <main id="workspace" class="workspace">
     <section id="filePanel" class="file-panel">
-      <h2>文件管理器</h2>
+      <div class="file-panel-header">
+        <h2>文件管理器</h2>
+        <button id="downloadAllBtn" type="button" title="全部下载">⤓</button>
+      </div>
       <p class="hint">支持任意文件上传。若在空项目中仅上传一个 ZIP，会自动解压到根目录。</p>
       <ul id="fileTree" class="file-tree"></ul>
     </section>
@@ -56,6 +61,21 @@
       </div>
       <div id="frameWarning" class="frame-warning hidden" role="alert"></div>
       <iframe id="previewFrame" title="网页预览" allow="fullscreen *"></iframe>
+      <div id="filePreviewContainer" class="file-preview hidden">
+        <div id="filePreviewMeta" class="file-preview-meta"></div>
+        <img id="imagePreview" class="hidden" alt="图片预览" />
+        <video id="videoPreview" class="hidden" controls></video>
+        <audio id="audioPreview" class="hidden" controls></audio>
+        <div id="textPreviewWrap" class="text-preview-wrap hidden">
+          <div class="text-actions">
+            <button id="editToggleBtn" type="button">编辑</button>
+            <button id="saveTextBtn" type="button" class="hidden">💾︎</button>
+            <button id="downloadTextBtn" type="button">⤓</button>
+          </div>
+          <textarea id="textEditor" class="hidden" spellcheck="false"></textarea>
+          <pre id="textPreview"><code id="textPreviewCode" class="hljs"></code></pre>
+        </div>
+      </div>
     </section>
   </main>
 
