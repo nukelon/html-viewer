@@ -24,6 +24,9 @@
       <div class="run-group">
         <input id="entryInput" type="text" value="index" placeholder="输入 html 名称（不含扩展名）" />
         <button id="previewBtn" type="button">预览</button>
+        <button id="pauseBtn" type="button" class="hidden">暂停</button>
+        <button id="stopBtn" type="button" class="hidden">停止</button>
+        <button id="fullscreenBtn" type="button" class="hidden">全屏</button>
       </div>
     </div>
   </header>
@@ -39,8 +42,16 @@
 
     <section id="previewPanel" class="preview-panel hidden">
       <h2>网页预览</h2>
+      <div id="pauseMask" class="pause-mask hidden">预览已暂停，点击“继续”恢复。</div>
       <iframe id="previewFrame" title="网页预览"></iframe>
     </section>
   </main>
+
+  <div id="fullscreenCorners" class="fullscreen-corners hidden" aria-hidden="true">
+    <button class="corner" data-corner="top-left" aria-label="左上角退出触发区"></button>
+    <button class="corner" data-corner="top-right" aria-label="右上角退出触发区"></button>
+    <button class="corner" data-corner="bottom-left" aria-label="左下角退出触发区"></button>
+    <button class="corner" data-corner="bottom-right" aria-label="右下角退出触发区"></button>
+  </div>
 </body>
 </html>
