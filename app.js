@@ -14,6 +14,8 @@ const previewPanel = document.getElementById('previewPanel');
 const previewFrame = document.getElementById('previewFrame');
 const progressTrack = document.getElementById('progressTrack');
 const progressBar = document.getElementById('progressBar');
+const embedBlockedNotice = document.getElementById('embedBlockedNotice');
+const openExternallyBtn = document.getElementById('openExternallyBtn');
 const splitter = document.getElementById('splitter');
 const workspace = document.getElementById('workspace');
 const fullscreenCorners = document.getElementById('fullscreenCorners');
@@ -172,6 +174,15 @@ function clearProgressTimer() {
   progressTimer = null;
 }
 
+function hideEmbedBlockedNotice() {
+  embedBlockedNotice.classList.add('hidden');
+}
+
+function showEmbedBlockedNotice() {
+  if (!isLikelyUrl(currentPreviewTarget)) return;
+  embedBlockedNotice.classList.remove('hidden');
+}
+
 function startProgress() {
   clearProgressTimer();
   progressValue = 0.08;
@@ -233,6 +244,7 @@ function stopPreview() {
   setPaused(false);
   exitFullscreen(false);
   clearProgressTimer();
+  hideEmbedBlockedNotice();
   progressTrack.classList.add('hidden');
   currentPreviewTarget = '';
   previewFrame.src = 'about:blank';
@@ -426,6 +438,7 @@ async function onPreview() {
 
   if (isLikelyUrl(target)) {
     currentPreviewTarget = target;
+    showEmbedBlockedNotice();
     enterPreviewMode();
     startProgress();
     previewFrame.src = target;
@@ -448,6 +461,7 @@ async function onPreview() {
 
   enterPreviewMode();
   currentPreviewTarget = entry;
+  hideEmbedBlockedNotice();
   startProgress();
   const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
   previewFrame.src = `${base}${entry}`;
@@ -552,6 +566,11 @@ previewFrame.addEventListener('load', () => {
   completeProgress();
   if (!isPaused) return;
   setPaused(true);
+});
+
+openExternallyBtn.addEventListener('click', () => {
+  if (!isLikelyUrl(currentPreviewTarget)) return;
+  window.open(currentPreviewTarget, '_blank', 'noopener,noreferrer');
 });
 
 fullscreenCorners.addEventListener('click', (event) => {

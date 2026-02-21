@@ -161,6 +161,35 @@ button {
   transition: width 160ms ease-out, opacity 180ms ease-out;
 }
 
+.embed-blocked-notice {
+  margin: 0 0 0.7rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  background: rgba(120, 53, 15, 0.25);
+  color: #fef3c7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.embed-blocked-notice p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+#openExternallyBtn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: #f59e0b;
+  color: #111827;
+  font-weight: 700;
+}
+
 .pause-mask {
   position: absolute;
   inset: 1.35rem 1rem 1rem;

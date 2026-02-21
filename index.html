@@ -48,6 +48,10 @@
       <div id="progressTrack" class="progress-track hidden" aria-hidden="true">
         <div id="progressBar" class="progress-bar"></div>
       </div>
+      <div id="embedBlockedNotice" class="embed-blocked-notice hidden" role="status" aria-live="polite">
+        <p>该网站可能禁止 iframe 嵌入（常见于 X-Frame-Options / CSP），因此会出现白屏。</p>
+        <button id="openExternallyBtn" type="button">在新标签页打开</button>
+      </div>
       <iframe id="previewFrame" title="网页预览" allow="fullscreen *"></iframe>
     </section>
   </main>
