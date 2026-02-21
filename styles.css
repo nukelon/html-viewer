@@ -52,10 +52,10 @@ button {
   cursor: pointer;
 }
 
-
 .upload-btn,
 #clearBtn {
   min-height: 36px;
+  font-size: 0.92rem;
   padding: 0.38rem 0.82rem;
   display: inline-flex;
   align-items: center;
@@ -66,15 +66,57 @@ button {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  position: relative;
 }
 
 #entryInput {
-  min-width: 200px;
+  width: 320px;
+  height: 36px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 0.38rem 0.6rem;
+  padding: 0.38rem 0.72rem;
   background: #0f172a;
   color: var(--text);
+}
+
+#settingsBtn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #64748b;
+  color: #fff;
+  font-size: 1.05rem;
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0b1220;
+  display: grid;
+  gap: 0.35rem;
+  z-index: 30;
+}
+
+.settings-menu label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-menu input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0f172a;
+  color: var(--text);
+  padding: 0 0.55rem;
 }
 
 .workspace {
@@ -143,6 +185,7 @@ iframe {
   font-weight: 700;
   color: #fff;
   border: none;
+  border-radius: 12px;
 }
 
 #stopBtn {
@@ -160,6 +203,7 @@ iframe {
 #fullscreenBtn {
   font-size: 1.1rem;
   font-weight: 700;
+  background: #64748b;
 }
 
 body.app-fullscreen .toolbar,
@@ -218,7 +262,7 @@ body.app-fullscreen iframe {
   width: min(90vw, 460px);
   background: #0b1220;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 20px;
   padding: 1rem;
 }
 
@@ -259,4 +303,9 @@ body.app-fullscreen iframe {
 
   .file-panel,
   .preview-panel { width: 100% !important; }
+
+  #entryInput,
+  .settings-menu {
+    width: min(84vw, 320px);
+  }
 }
