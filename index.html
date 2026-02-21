@@ -5,9 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GitHub Pages 在线网页预览器</title>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" />
+  <link id="hljsTheme" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/highlight.min.js"></script>
+  <script>
+    (() => {
+      const theme = document.getElementById('hljsTheme');
+      theme?.addEventListener('error', () => {
+        if (theme.dataset.fallback === '1') return;
+        theme.dataset.fallback = '1';
+        theme.href = 'https://unpkg.com/highlight.js@11.11.1/styles/github-dark.min.css';
+      });
+    })();
+  </script>
+  <script id="hljsScript" defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/highlight.min.js"></script>
+  <script>
+    (() => {
+      const notifyReady = () => window.dispatchEvent(new Event('hljs-ready'));
+      const script = document.getElementById('hljsScript');
+      script?.addEventListener('load', notifyReady);
+      script?.addEventListener('error', () => {
+        if (window.hljs || script.dataset.fallback === '1') return;
+        script.dataset.fallback = '1';
+        const fallback = document.createElement('script');
+        fallback.defer = true;
+        fallback.src = 'https://unpkg.com/highlight.js@11.11.1/highlight.min.js';
+        fallback.addEventListener('load', notifyReady);
+        document.head.appendChild(fallback);
+      });
+    })();
+  </script>
   <script defer src="app.js"></script>
 </head>
 <body>
