@@ -1,7 +1,6 @@
 const fileInput = document.getElementById('fileInput');
 const folderInput = document.getElementById('folderInput');
 const clearBtn = document.getElementById('clearBtn');
-const downloadAllBtn = document.getElementById('downloadAllBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const stopBtn = document.getElementById('stopBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -25,18 +24,6 @@ const fullscreenModal = document.getElementById('fullscreenModal');
 const dontRemindCheckbox = document.getElementById('dontRemindCheckbox');
 const cancelFullscreenHintBtn = document.getElementById('cancelFullscreenHintBtn');
 const confirmFullscreenHintBtn = document.getElementById('confirmFullscreenHintBtn');
-const filePreviewContainer = document.getElementById('filePreviewContainer');
-const filePreviewMeta = document.getElementById('filePreviewMeta');
-const imagePreview = document.getElementById('imagePreview');
-const videoPreview = document.getElementById('videoPreview');
-const audioPreview = document.getElementById('audioPreview');
-const textPreviewWrap = document.getElementById('textPreviewWrap');
-const textPreview = document.getElementById('textPreview');
-const textPreviewCode = document.getElementById('textPreviewCode');
-const textEditor = document.getElementById('textEditor');
-const editToggleBtn = document.getElementById('editToggleBtn');
-const saveTextBtn = document.getElementById('saveTextBtn');
-const downloadTextBtn = document.getElementById('downloadTextBtn');
 
 const files = new Map();
 const CACHE_NAME = 'html-viewer-vfs';
@@ -50,9 +37,6 @@ let currentPreviewTarget = '';
 let pendingNavigationUrl = '';
 let suppressNextHistoryPush = false;
 let lastKnownFrameUrl = '';
-let previewMode = 'web';
-let currentPreviewFilePath = '';
-let isEditingText = false;
 
 let progressTimer = null;
 let progressValue = 0;
@@ -91,6 +75,7 @@ function updateEntryInput(url) {
   entryInput.value = getDisplayTarget(url);
 }
 
+
 function getObservedFrameUrl() {
   try {
     return previewFrame.contentWindow?.location?.href || previewFrame.src;
@@ -118,9 +103,8 @@ function navigateFrame(url, options = {}) {
 }
 
 function updateNavButtons() {
-  const enabled = isPreviewing && previewMode === 'web';
-  backBtn.disabled = !enabled || previewHistoryIndex <= 0;
-  forwardBtn.disabled = !enabled || previewHistoryIndex >= previewHistory.length - 1;
+  backBtn.disabled = !isPreviewing || previewHistoryIndex <= 0;
+  forwardBtn.disabled = !isPreviewing || previewHistoryIndex >= previewHistory.length - 1;
 }
 
 function pushHistory(url) {
@@ -134,20 +118,22 @@ function pushHistory(url) {
   updateNavButtons();
 }
 
-function extOf(path) {
-  return (path.split('.').pop() || '').toLowerCase();
-}
-
 function guessMimeType(path) {
-  const ext = extOf(path);
+  const ext = path.split('.').pop()?.toLowerCase() || '';
   const table = {
-    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
-    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
-    jsx: 'text/javascript; charset=utf-8', ts: 'text/plain; charset=utf-8', tsx: 'text/plain; charset=utf-8',
-    json: 'application/json; charset=utf-8', md: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
-    xml: 'text/plain; charset=utf-8', yaml: 'text/plain; charset=utf-8', yml: 'text/plain; charset=utf-8',
-    svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon',
-    mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac'
+    html: 'text/html; charset=utf-8',
+    htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    mjs: 'text/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    svg: 'image/svg+xml',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    ico: 'image/x-icon'
   };
   return table[ext] || 'application/octet-stream';
 }
@@ -211,22 +197,6 @@ async function unzipIntoRoot(zipFile) {
   }
 }
 
-function isTextFile(path, blob) {
-  if (blob.type && blob.type.startsWith('text/')) return true;
-  if (blob.type && /json|javascript|xml/.test(blob.type)) return true;
-  const textExt = new Set(['txt', 'md', 'html', 'htm', 'css', 'js', 'jsx', 'ts', 'tsx', 'json', 'xml', 'svg', 'yaml', 'yml', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'php', 'sh']);
-  return textExt.has(extOf(path));
-}
-
-function getFilePreviewKind(path, blob) {
-  const mime = blob.type || guessMimeType(path);
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (isTextFile(path, blob)) return 'text';
-  return '';
-}
-
 function renderTree() {
   fileTree.innerHTML = '';
   const list = [...files.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
@@ -236,14 +206,7 @@ function renderTree() {
   }
   for (const path of list) {
     const li = document.createElement('li');
-    li.dataset.path = path;
-    const blob = files.get(path);
-    const kind = blob ? getFilePreviewKind(path, blob) : '';
-    if (kind) {
-      li.innerHTML = `📄 <button type="button" class="file-link" data-path="${path}">${path}</button>`;
-    } else {
-      li.textContent = `📄 ${path}`;
-    }
+    li.textContent = `📄 ${path}`;
     fileTree.appendChild(li);
   }
 }
@@ -262,10 +225,22 @@ async function syncCache() {
   await Promise.all(puts);
 }
 
-function showPreviewControls() { stopBtn.classList.remove('hidden'); fullscreenBtn.classList.remove('hidden'); }
-function hidePreviewControls() { stopBtn.classList.add('hidden'); fullscreenBtn.classList.add('hidden'); }
+function showPreviewControls() {
+  stopBtn.classList.remove('hidden');
+  fullscreenBtn.classList.remove('hidden');
+}
 
-function clearProgressTimer() { if (!progressTimer) return; clearInterval(progressTimer); progressTimer = null; }
+function hidePreviewControls() {
+  stopBtn.classList.add('hidden');
+  fullscreenBtn.classList.add('hidden');
+}
+
+function clearProgressTimer() {
+  if (!progressTimer) return;
+  clearInterval(progressTimer);
+  progressTimer = null;
+}
+
 function startProgress() {
   clearProgressTimer();
   progressValue = 0.08;
@@ -277,6 +252,7 @@ function startProgress() {
     progressBar.style.width = `${progressValue * 100}%`;
   }, 120);
 }
+
 function completeProgress() {
   clearProgressTimer();
   progressValue = 1;
@@ -300,29 +276,41 @@ function createPauseMask() {
   return pauseMask;
 }
 
-function setPauseMaskVisible(visible) { createPauseMask().style.display = visible ? 'block' : 'none'; }
+function setPauseMaskVisible(visible) {
+  createPauseMask().style.display = visible ? 'block' : 'none';
+}
 
 function setFrameRuntimePaused(frameWindow, paused) {
   if (!frameWindow) return;
-  try { frameWindow.postMessage({ type: '__html_viewer_pause__', paused }, '*'); } catch {}
+  try {
+    frameWindow.postMessage({ type: '__html_viewer_pause__', paused }, '*');
+  } catch {
+    // ignore cross-origin message issues
+  }
 }
 
 function collectPlayableState(doc) {
   mediaElements.clear();
   if (!doc) return;
-  doc.querySelectorAll('audio, video').forEach((media) => { mediaStateMap.set(media, !media.paused && !media.ended); mediaElements.add(media); });
+  doc.querySelectorAll('audio, video').forEach((media) => {
+    mediaStateMap.set(media, !media.paused && !media.ended);
+    mediaElements.add(media);
+  });
   const animations = typeof doc.getAnimations === 'function' ? doc.getAnimations({ subtree: true }) : [];
   animationMap.set(doc, animations);
 }
 
 function setPaused(paused) {
-  if ((!isPreviewing || previewMode !== 'web') && paused) return;
+  if (!isPreviewing && paused) return;
   isPaused = paused;
   previewFrame.classList.toggle('paused', paused && !isLikelyUrl(currentPreviewTarget));
   setPauseMaskVisible(paused);
-  pauseBtn.classList.toggle('is-resume', !isPreviewing || paused || previewMode !== 'web');
+  pauseBtn.classList.toggle('is-resume', !isPreviewing || paused);
 
-  if (!isPreviewing || previewMode !== 'web') { pauseBtn.textContent = '▶︎'; return; }
+  if (!isPreviewing) {
+    pauseBtn.textContent = '▶︎';
+    return;
+  }
 
   const frameDoc = previewFrame.contentDocument;
   if (!frameDoc) {
@@ -352,19 +340,11 @@ function setPaused(paused) {
   (animationMap.get(frameDoc) || []).forEach((animation) => { try { animation.play(); } catch {} });
 }
 
-function hideAllFilePreviewParts() {
-  [imagePreview, videoPreview, audioPreview, textPreviewWrap, textEditor, saveTextBtn].forEach((el) => el.classList.add('hidden'));
-}
-
-function enterPreviewMode(mode = 'web') {
-  previewMode = mode;
+function enterPreviewMode() {
   filePanel.style.width = '25%';
   previewPanel.classList.remove('hidden');
   splitter.classList.remove('hidden');
   isPreviewing = true;
-  previewFrame.classList.toggle('hidden', mode !== 'web');
-  filePreviewContainer.classList.toggle('hidden', mode !== 'file');
-  pauseBtn.disabled = mode !== 'web';
   setPaused(false);
   fullscreenBtn.textContent = '⛶';
   showPreviewControls();
@@ -373,7 +353,6 @@ function enterPreviewMode(mode = 'web') {
 
 function stopPreview() {
   isPreviewing = false;
-  previewMode = 'web';
   setPaused(false);
   exitFullscreen(false);
   clearProgressTimer();
@@ -382,18 +361,13 @@ function stopPreview() {
   pendingNavigationUrl = '';
   suppressNextHistoryPush = false;
   lastKnownFrameUrl = '';
-  currentPreviewFilePath = '';
-  isEditingText = false;
   showFrameWarning('');
   previewFrame.src = 'about:blank';
   previewPanel.classList.add('hidden');
   splitter.classList.add('hidden');
-  filePreviewContainer.classList.add('hidden');
-  previewFrame.classList.remove('hidden');
   filePanel.style.width = '100%';
   hidePreviewControls();
   pauseBtn.textContent = '▶︎';
-  pauseBtn.disabled = false;
   previewFrame.classList.remove('paused');
   previewHistory.length = 0;
   previewHistoryIndex = -1;
@@ -455,14 +429,24 @@ function isLikelyUrl(rawValue) {
   }
 }
 
+function looksLikeDomain(rawValue) {
+  if (!rawValue || /\s/.test(rawValue) || rawValue.includes('/')) return false;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawValue);
+}
+
 function applyCustomUserAgentHint() {
   const customUA = userAgentInput.value.trim();
   if (!customUA) return;
   try {
     const frameWindow = previewFrame.contentWindow;
     if (!frameWindow) return;
-    Object.defineProperty(frameWindow.navigator, 'userAgent', { configurable: true, get: () => customUA });
-  } catch {}
+    Object.defineProperty(frameWindow.navigator, 'userAgent', {
+      configurable: true,
+      get: () => customUA
+    });
+  } catch {
+    // blocked by browser policy
+  }
 }
 
 function resolvePreviewUrl(target) {
@@ -474,7 +458,9 @@ function resolvePreviewUrl(target) {
 
 async function navigatePreview(rawTarget, options = {}) {
   const { fromHistory = false } = options;
-  const target = rawTarget.trim() || 'index.html';
+  const inputValue = rawTarget.trim();
+  const normalizedInput = looksLikeDomain(inputValue) ? `https://${inputValue}` : inputValue;
+  const target = normalizedInput || 'index.html';
 
   if (!isLikelyUrl(target)) {
     const entry = normalizePath(target);
@@ -493,7 +479,7 @@ async function navigatePreview(rawTarget, options = {}) {
     currentPreviewTarget = target;
   }
 
-  enterPreviewMode('web');
+  enterPreviewMode();
   showFrameWarning('');
   const url = resolvePreviewUrl(target);
   navigateFrame(url, { fromHistory });
@@ -559,85 +545,20 @@ function setupResizableSidebar() {
     onDrag(event.clientX);
   });
 
-  splitter.addEventListener('pointermove', (event) => { if (dragging) onDrag(event.clientX); });
+  splitter.addEventListener('pointermove', (event) => {
+    if (dragging) onDrag(event.clientX);
+  });
 
   const endDrag = (event) => {
     dragging = false;
     document.body.style.userSelect = '';
-    if (event?.pointerId !== undefined && splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
+    if (event?.pointerId !== undefined && splitter.hasPointerCapture(event.pointerId)) {
+      splitter.releasePointerCapture(event.pointerId);
+    }
   };
 
   splitter.addEventListener('pointerup', endDrag);
   splitter.addEventListener('pointercancel', endDrag);
-}
-
-async function previewFile(path) {
-  const blob = files.get(path);
-  if (!blob) return;
-  if (isPreviewing && previewMode === 'web') {
-    const ok = confirm('当前正在预览网页。预览文件将自动停止网页预览，并占用当前预览区域，是否继续？');
-    if (!ok) return;
-  }
-
-  const kind = getFilePreviewKind(path, blob);
-  if (!kind) {
-    alert('该文件类型暂不支持预览。');
-    return;
-  }
-
-  currentPreviewFilePath = path;
-  isEditingText = false;
-  hideAllFilePreviewParts();
-  filePreviewMeta.textContent = `预览：${path}`;
-
-  const objectUrl = URL.createObjectURL(blob);
-
-  if (kind === 'image') {
-    imagePreview.src = objectUrl;
-    imagePreview.classList.remove('hidden');
-  } else if (kind === 'video') {
-    videoPreview.src = objectUrl;
-    videoPreview.classList.remove('hidden');
-  } else if (kind === 'audio') {
-    audioPreview.src = objectUrl;
-    audioPreview.classList.remove('hidden');
-  } else if (kind === 'text') {
-    const text = await blob.text();
-    textPreviewWrap.classList.remove('hidden');
-    textEditor.value = text;
-    textPreviewCode.textContent = text;
-    const ext = extOf(path);
-    textPreviewCode.className = `language-${ext}`;
-    if (window.hljs) window.hljs.highlightElement(textPreviewCode);
-    textPreview.classList.remove('hidden');
-  }
-
-  enterPreviewMode('file');
-}
-
-async function saveTextFile() {
-  if (!currentPreviewFilePath) return;
-  const text = textEditor.value;
-  const mime = guessMimeType(currentPreviewFilePath);
-  const blob = new Blob([text], { type: mime });
-  files.set(currentPreviewFilePath, blob);
-  renderTree();
-  if (isPreviewing && previewMode === 'file') {
-    textPreviewCode.textContent = text;
-    if (window.hljs) window.hljs.highlightElement(textPreviewCode);
-  }
-  alert('保存成功。');
-}
-
-function downloadBlob(name, blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name.split('/').pop() || name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 800);
 }
 
 fileInput.addEventListener('change', async (event) => {
@@ -659,48 +580,8 @@ clearBtn.addEventListener('click', async () => {
   await Promise.all(keys.map((request) => cache.delete(request)));
 });
 
-downloadAllBtn.addEventListener('click', async () => {
-  if (!files.size) {
-    alert('暂无可下载文件。');
-    return;
-  }
-  if (!window.JSZip) {
-    alert('ZIP 库尚未加载完成，请稍后重试。');
-    return;
-  }
-  const zip = new JSZip();
-  for (const [path, blob] of files.entries()) {
-    zip.file(path, blob);
-  }
-  const output = await zip.generateAsync({ type: 'blob' });
-  downloadBlob('all-files.zip', output);
-});
-
-fileTree.addEventListener('click', async (event) => {
-  const button = event.target.closest('.file-link');
-  if (!button) return;
-  await previewFile(button.dataset.path);
-});
-
-editToggleBtn.addEventListener('click', () => {
-  isEditingText = !isEditingText;
-  textEditor.classList.toggle('hidden', !isEditingText);
-  textPreview.classList.toggle('hidden', isEditingText);
-  saveTextBtn.classList.toggle('hidden', !isEditingText);
-  editToggleBtn.textContent = isEditingText ? '取消编辑' : '编辑';
-});
-
-saveTextBtn.addEventListener('click', saveTextFile);
-
-downloadTextBtn.addEventListener('click', () => {
-  if (!currentPreviewFilePath) return;
-  const blob = files.get(currentPreviewFilePath);
-  if (!blob) return;
-  downloadBlob(currentPreviewFilePath, blob);
-});
-
 pauseBtn.addEventListener('click', () => {
-  if (!isPreviewing || previewMode !== 'web') {
+  if (!isPreviewing) {
     navigatePreview(entryInput.value);
     return;
   }
@@ -711,12 +592,15 @@ stopBtn.addEventListener('click', stopPreview);
 
 fullscreenBtn.addEventListener('click', async () => {
   if (!isPreviewing) return;
-  if (isFullscreen) { exitFullscreen(); return; }
+  if (isFullscreen) {
+    exitFullscreen();
+    return;
+  }
   await enterFullscreen();
 });
 
 backBtn.addEventListener('click', () => {
-  if (previewMode !== 'web' || previewHistoryIndex <= 0) return;
+  if (previewHistoryIndex <= 0) return;
   previewHistoryIndex -= 1;
   const historyUrl = previewHistory[previewHistoryIndex];
   currentPreviewTarget = historyUrl;
@@ -725,7 +609,7 @@ backBtn.addEventListener('click', () => {
 });
 
 forwardBtn.addEventListener('click', () => {
-  if (previewMode !== 'web' || previewHistoryIndex >= previewHistory.length - 1) return;
+  if (previewHistoryIndex >= previewHistory.length - 1) return;
   previewHistoryIndex += 1;
   const historyUrl = previewHistory[previewHistoryIndex];
   currentPreviewTarget = historyUrl;
@@ -733,7 +617,9 @@ forwardBtn.addEventListener('click', () => {
   navigateFrame(historyUrl, { fromHistory: true });
 });
 
-settingsBtn.addEventListener('click', () => { settingsMenu.classList.toggle('hidden'); });
+settingsBtn.addEventListener('click', () => {
+  settingsMenu.classList.toggle('hidden');
+});
 
 document.addEventListener('click', (event) => {
   if (settingsMenu.classList.contains('hidden')) return;
@@ -741,13 +627,15 @@ document.addEventListener('click', (event) => {
   settingsMenu.classList.add('hidden');
 });
 
-userAgentInput.addEventListener('input', () => { localStorage.setItem(USER_AGENT_KEY, userAgentInput.value); });
+userAgentInput.addEventListener('input', () => {
+  localStorage.setItem(USER_AGENT_KEY, userAgentInput.value);
+});
 
 previewFrame.addEventListener('load', () => {
   applyCustomUserAgentHint();
   completeProgress();
 
-  if (!isPreviewing || previewMode !== 'web') {
+  if (!isPreviewing) {
     pendingNavigationUrl = '';
     suppressNextHistoryPush = false;
     return;
@@ -756,7 +644,11 @@ previewFrame.addEventListener('load', () => {
   attachFrameNavigationHooks();
 
   let loadedUrl = previewFrame.src;
-  try { loadedUrl = previewFrame.contentWindow?.location?.href || previewFrame.src; } catch { loadedUrl = previewFrame.src; }
+  try {
+    loadedUrl = previewFrame.contentWindow?.location?.href || previewFrame.src;
+  } catch {
+    loadedUrl = previewFrame.src;
+  }
   const expectedUrl = pendingNavigationUrl;
   pendingNavigationUrl = '';
 
@@ -797,7 +689,7 @@ const savedUA = localStorage.getItem(USER_AGENT_KEY);
 if (savedUA) userAgentInput.value = savedUA;
 
 setInterval(() => {
-  if (!isPreviewing || previewMode !== 'web') return;
+  if (!isPreviewing) return;
   const observed = getObservedFrameUrl();
   if (!observed || observed === 'about:blank' || observed === lastKnownFrameUrl) return;
   lastKnownFrameUrl = observed;
