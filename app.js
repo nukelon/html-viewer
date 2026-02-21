@@ -12,6 +12,8 @@ const fileTree = document.getElementById('fileTree');
 const filePanel = document.getElementById('filePanel');
 const previewPanel = document.getElementById('previewPanel');
 const previewFrame = document.getElementById('previewFrame');
+const progressTrack = document.getElementById('progressTrack');
+const progressBar = document.getElementById('progressBar');
 const splitter = document.getElementById('splitter');
 const workspace = document.getElementById('workspace');
 const fullscreenCorners = document.getElementById('fullscreenCorners');
@@ -28,6 +30,12 @@ let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
 let isFullscreen = false;
+let currentPreviewTarget = '';
+
+let progressTimer = null;
+let progressValue = 0;
+
+let pauseMask = null;
 
 const mediaElements = new Set();
 const mediaStateMap = new WeakMap();
@@ -80,7 +88,15 @@ function appendFile(path, blob) {
   files.set(normalized, blob);
 }
 
-async function handleUpload(fileList) {
+function stripTopLevelFolder(path) {
+  const normalized = normalizePath(path);
+  const parts = normalized.split('/');
+  if (parts.length <= 1) return normalized;
+  return parts.slice(1).join('/');
+}
+
+async function handleUpload(fileList, options = {}) {
+  const { flattenFolderToRoot = false } = options;
   const selected = Array.from(fileList || []);
   if (!selected.length) return;
 
@@ -90,7 +106,8 @@ async function handleUpload(fileList) {
     await unzipIntoRoot(selected[0]);
   } else {
     for (const file of selected) {
-      const path = normalizePath(file.webkitRelativePath || file.name);
+      const rawPath = file.webkitRelativePath || file.name;
+      const path = flattenFolderToRoot ? stripTopLevelFolder(rawPath) : normalizePath(rawPath);
       appendFile(path, file);
     }
   }
@@ -149,6 +166,58 @@ function hidePreviewControls() {
   fullscreenBtn.classList.add('hidden');
 }
 
+function clearProgressTimer() {
+  if (!progressTimer) return;
+  clearInterval(progressTimer);
+  progressTimer = null;
+}
+
+function startProgress() {
+  clearProgressTimer();
+  progressValue = 0.08;
+  progressTrack.classList.remove('hidden');
+  progressBar.style.opacity = '1';
+  progressBar.style.width = `${progressValue * 100}%`;
+
+  progressTimer = setInterval(() => {
+    if (progressValue >= 0.9) {
+      clearProgressTimer();
+      return;
+    }
+    const delta = (0.9 - progressValue) * (Math.random() * 0.2 + 0.08);
+    progressValue = Math.min(0.9, progressValue + delta);
+    progressBar.style.width = `${progressValue * 100}%`;
+  }, 180);
+}
+
+function completeProgress() {
+  clearProgressTimer();
+  progressValue = 1;
+  progressBar.style.width = '100%';
+  setTimeout(() => {
+    progressBar.style.opacity = '0';
+  }, 120);
+  setTimeout(() => {
+    progressTrack.classList.add('hidden');
+    progressBar.style.width = '0';
+    progressBar.style.opacity = '1';
+  }, 320);
+}
+
+function createPauseMask() {
+  if (pauseMask) return pauseMask;
+  pauseMask = document.createElement('div');
+  pauseMask.className = 'pause-mask';
+  pauseMask.style.display = 'none';
+  previewPanel.appendChild(pauseMask);
+  return pauseMask;
+}
+
+function setPauseMaskVisible(visible) {
+  const mask = createPauseMask();
+  mask.style.display = visible ? 'block' : 'none';
+}
+
 function enterPreviewMode() {
   filePanel.style.width = '25%';
   previewPanel.classList.remove('hidden');
@@ -163,6 +232,9 @@ function stopPreview() {
   isPreviewing = false;
   setPaused(false);
   exitFullscreen(false);
+  clearProgressTimer();
+  progressTrack.classList.add('hidden');
+  currentPreviewTarget = '';
   previewFrame.src = 'about:blank';
   previewPanel.classList.add('hidden');
   splitter.classList.add('hidden');
@@ -187,10 +259,20 @@ function collectPlayableState(doc) {
   animationMap.set(doc, animations);
 }
 
+function setFrameRuntimePaused(frameWindow, paused) {
+  if (!frameWindow) return;
+  try {
+    frameWindow.postMessage({ type: '__html_viewer_pause__', paused }, '*');
+  } catch {
+    // ignore cross-origin message issues
+  }
+}
+
 function setPaused(paused) {
   if (!isPreviewing && paused) return;
   isPaused = paused;
-  previewFrame.classList.toggle('paused', paused);
+  previewFrame.classList.toggle('paused', paused && !isLikelyUrl(currentPreviewTarget));
+  setPauseMaskVisible(paused);
   pauseBtn.classList.toggle('is-resume', !isPreviewing || paused);
 
   if (!isPreviewing) {
@@ -224,11 +306,13 @@ function setPaused(paused) {
     });
 
     frameDoc.documentElement.classList.add('preview-paused');
+    setFrameRuntimePaused(previewFrame.contentWindow, true);
     pauseBtn.textContent = '▶︎';
     return;
   }
 
   frameDoc.documentElement.classList.remove('preview-paused');
+  setFrameRuntimePaused(previewFrame.contentWindow, false);
   pauseBtn.textContent = '⏸︎';
 
   mediaElements.forEach((media) => {
@@ -312,6 +396,13 @@ function isLikelyUrl(rawValue) {
   }
 }
 
+function looksLikeDomain(rawValue) {
+  if (!rawValue) return false;
+  if (/\s/.test(rawValue)) return false;
+  if (rawValue.includes('/')) return false;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawValue);
+}
+
 function applyCustomUserAgentHint() {
   const customUA = userAgentInput.value.trim();
   if (!customUA) return;
@@ -330,16 +421,19 @@ function applyCustomUserAgentHint() {
 
 async function onPreview() {
   const inputValue = entryInput.value.trim();
-  if (!inputValue) return;
+  const normalizedInput = looksLikeDomain(inputValue) ? `https://${inputValue}` : inputValue;
+  const target = normalizedInput || 'index.html';
 
-  if (isLikelyUrl(inputValue)) {
+  if (isLikelyUrl(target)) {
+    currentPreviewTarget = target;
     enterPreviewMode();
-    previewFrame.src = inputValue;
+    startProgress();
+    previewFrame.src = target;
     pauseBtn.textContent = '⏸︎';
     return;
   }
 
-  const entry = normalizePath(`${inputValue || 'index'}.html`);
+  const entry = normalizePath(target);
   if (!files.has(entry)) {
     alert(`未找到文件：${entry}`);
     return;
@@ -353,6 +447,8 @@ async function onPreview() {
   }
 
   enterPreviewMode();
+  currentPreviewTarget = entry;
+  startProgress();
   const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
   previewFrame.src = `${base}${entry}`;
   pauseBtn.textContent = '⏸︎';
@@ -403,7 +499,7 @@ fileInput.addEventListener('change', async (event) => {
 });
 
 folderInput.addEventListener('change', async (event) => {
-  await handleUpload(event.target.files);
+  await handleUpload(event.target.files, { flattenFolderToRoot: files.size === 0 });
   folderInput.value = '';
 });
 
@@ -453,6 +549,7 @@ userAgentInput.addEventListener('input', () => {
 
 previewFrame.addEventListener('load', () => {
   applyCustomUserAgentHint();
+  completeProgress();
   if (!isPaused) return;
   setPaused(true);
 });
