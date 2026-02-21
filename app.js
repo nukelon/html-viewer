@@ -25,6 +25,11 @@ const fullscreenModal = document.getElementById('fullscreenModal');
 const dontRemindCheckbox = document.getElementById('dontRemindCheckbox');
 const cancelFullscreenHintBtn = document.getElementById('cancelFullscreenHintBtn');
 const confirmFullscreenHintBtn = document.getElementById('confirmFullscreenHintBtn');
+const unsavedChangesModal = document.getElementById('unsavedChangesModal');
+const unsavedChangesModalText = document.getElementById('unsavedChangesModalText');
+const discardUnsavedBtn = document.getElementById('discardUnsavedBtn');
+const cancelUnsavedBtn = document.getElementById('cancelUnsavedBtn');
+const saveUnsavedBtn = document.getElementById('saveUnsavedBtn');
 const filePreviewContainer = document.getElementById('filePreviewContainer');
 const filePreviewMeta = document.getElementById('filePreviewMeta');
 const imagePreview = document.getElementById('imagePreview');
@@ -54,6 +59,7 @@ let previewMode = 'web';
 let currentPreviewFilePath = '';
 let isEditingText = false;
 let textEditorOriginalValue = '';
+let pendingUnsavedResolver = null;
 
 let progressTimer = null;
 let progressValue = 0;
@@ -405,17 +411,34 @@ function setTextEditingMode(editing) {
   editToggleBtn.textContent = editing ? '取消' : '编辑';
 }
 
+function showUnsavedChangesModal(message = '你正在编辑的文件有未保存内容，是否先保存？') {
+  if (pendingUnsavedResolver) {
+    pendingUnsavedResolver('cancel');
+    pendingUnsavedResolver = null;
+  }
+
+  unsavedChangesModalText.textContent = message;
+  unsavedChangesModal.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    pendingUnsavedResolver = (choice) => {
+      unsavedChangesModal.classList.add('hidden');
+      pendingUnsavedResolver = null;
+      resolve(choice);
+    };
+  });
+}
+
 async function ensureTextChangesResolvedBeforeSwitch(nextPath = '') {
   if (!currentPreviewFilePath || currentPreviewFilePath === nextPath || !hasUnsavedTextChanges()) return true;
 
-  const saveBeforeSwitch = confirm('检测到未保存修改。点击“确定”将保存后切换文件，点击“取消”继续选择是否丢弃修改。');
-  if (saveBeforeSwitch) {
+  const choice = await showUnsavedChangesModal('检测到未保存修改。切换文件前是否保存当前编辑内容？');
+  if (choice === 'save') {
     await saveTextFile({ silent: true });
     return true;
   }
 
-  const discardChanges = confirm('是否丢弃当前未保存修改并切换文件？');
-  return discardChanges;
+  return choice === 'discard';
 }
 
 function enterPreviewMode(mode = 'web') {
@@ -426,7 +449,7 @@ function enterPreviewMode(mode = 'web') {
   isPreviewing = true;
   previewFrame.classList.toggle('hidden', mode !== 'web');
   filePreviewContainer.classList.toggle('hidden', mode !== 'file');
-  pauseBtn.disabled = mode !== 'web';
+  pauseBtn.disabled = false;
   setPaused(false);
   fullscreenBtn.textContent = '⛶';
   showPreviewControls();
@@ -458,8 +481,6 @@ function stopPreview() {
   pauseBtn.textContent = '▶︎';
   pauseBtn.disabled = false;
   previewFrame.classList.remove('paused');
-  previewHistory.length = 0;
-  previewHistoryIndex = -1;
   updateNavButtons();
 }
 
@@ -696,6 +717,23 @@ async function saveTextFile(options = {}) {
   if (!silent) alert('保存成功。');
 }
 
+function closeFilePreviewState() {
+  currentPreviewFilePath = '';
+  textEditorOriginalValue = '';
+  setTextEditingMode(false);
+}
+
+async function prepareToRunFromCurrentState() {
+  if (previewMode === 'file' && hasUnsavedTextChanges()) {
+    const choice = await showUnsavedChangesModal('检测到未保存修改。运行前是否保存当前编辑内容？');
+    if (choice === 'cancel') return false;
+    if (choice === 'save') await saveTextFile({ silent: true });
+  }
+
+  closeFilePreviewState();
+  return true;
+}
+
 function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -770,8 +808,17 @@ downloadTextBtn.addEventListener('click', () => {
   downloadBlob(currentPreviewFilePath, blob);
 });
 
-pauseBtn.addEventListener('click', () => {
+discardUnsavedBtn.addEventListener('click', () => pendingUnsavedResolver?.('discard'));
+cancelUnsavedBtn.addEventListener('click', () => pendingUnsavedResolver?.('cancel'));
+saveUnsavedBtn.addEventListener('click', () => pendingUnsavedResolver?.('save'));
+unsavedChangesModal.addEventListener('click', (event) => {
+  if (event.target === unsavedChangesModal) pendingUnsavedResolver?.('cancel');
+});
+
+pauseBtn.addEventListener('click', async () => {
   if (!isPreviewing || previewMode !== 'web') {
+    const ready = await prepareToRunFromCurrentState();
+    if (!ready) return;
     navigatePreview(entryInput.value);
     return;
   }
