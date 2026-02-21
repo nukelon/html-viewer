@@ -29,6 +29,34 @@ body {
   z-index: 5;
 }
 
+.title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.nav-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+#backBtn,
+#forwardBtn {
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+#backBtn:disabled,
+#forwardBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .toolbar h1 {
   margin: 0;
   font-size: 1.4rem;
@@ -220,7 +248,7 @@ iframe {
 }
 
 #pauseBtn {
-  background: #2563eb;
+  background: #16a34a;
 }
 
 #pauseBtn.is-resume {
