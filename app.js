@@ -1,7 +1,6 @@
 const fileInput = document.getElementById('fileInput');
 const folderInput = document.getElementById('folderInput');
 const clearBtn = document.getElementById('clearBtn');
-const previewBtn = document.getElementById('previewBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const stopBtn = document.getElementById('stopBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -25,6 +24,9 @@ let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
 let isFullscreen = false;
+
+const mediaElements = new Set();
+const mediaStateMap = new WeakMap();
 
 function guessMimeType(path) {
   const ext = path.split('.').pop()?.toLowerCase() || '';
@@ -71,8 +73,15 @@ function normalizePath(path) {
   return path.replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
+function shouldIgnorePath(path) {
+  const normalized = normalizePath(path);
+  return normalized.split('/').includes('__MACOSX');
+}
+
 function appendFile(path, blob) {
-  files.set(normalizePath(path), blob);
+  const normalized = normalizePath(path);
+  if (shouldIgnorePath(normalized)) return;
+  files.set(normalized, blob);
 }
 
 async function handleUpload(fileList) {
@@ -135,13 +144,11 @@ async function syncCache() {
 }
 
 function showPreviewControls() {
-  pauseBtn.classList.remove('hidden');
   stopBtn.classList.remove('hidden');
   fullscreenBtn.classList.remove('hidden');
 }
 
 function hidePreviewControls() {
-  pauseBtn.classList.add('hidden');
   stopBtn.classList.add('hidden');
   fullscreenBtn.classList.add('hidden');
 }
@@ -152,6 +159,7 @@ function enterPreviewMode() {
   splitter.classList.remove('hidden');
   isPreviewing = true;
   setPaused(false);
+  fullscreenBtn.textContent = '⛶';
   showPreviewControls();
 }
 
@@ -164,13 +172,55 @@ function stopPreview() {
   splitter.classList.add('hidden');
   filePanel.style.width = '100%';
   hidePreviewControls();
+  pauseBtn.textContent = '▶︎';
+}
+
+function snapshotMediaState(doc) {
+  mediaElements.clear();
+  if (!doc) return;
+  const elements = doc.querySelectorAll('audio, video');
+  for (const media of elements) {
+    const wasPlaying = !media.paused && !media.ended;
+    mediaStateMap.set(media, wasPlaying);
+    mediaElements.add(media);
+  }
 }
 
 function setPaused(paused) {
+  if (!isPreviewing && paused) return;
   isPaused = paused;
   previewFrame.classList.toggle('paused', paused);
-  pauseBtn.textContent = paused ? '▶︎' : '⏸︎';
-  pauseBtn.classList.toggle('is-resume', paused);
+  pauseBtn.classList.toggle('is-resume', !isPreviewing || paused);
+
+  if (!isPreviewing) {
+    pauseBtn.textContent = '▶︎';
+    return;
+  }
+
+  const frameDoc = previewFrame.contentDocument;
+  if (paused) {
+    snapshotMediaState(frameDoc);
+    mediaElements.forEach((media) => {
+      try {
+        media.pause();
+      } catch {
+        // ignore unsupported media pause errors
+      }
+    });
+    pauseBtn.textContent = '▶︎';
+    return;
+  }
+
+  pauseBtn.textContent = '⏸︎';
+  mediaElements.forEach((media) => {
+    if (!mediaStateMap.get(media)) return;
+    const playResult = media.play();
+    if (playResult && typeof playResult.catch === 'function') {
+      playResult.catch(() => {
+        // autoplay policy may block; user can interact in iframe to resume
+      });
+    }
+  });
 }
 
 function showFullscreenHintModal() {
@@ -193,11 +243,12 @@ function showFullscreenHintModal() {
 }
 
 async function maybeShowFullscreenHint() {
-  if (localStorage.getItem(FULLSCREEN_HINT_KEY) === '1') return;
-  const { dontRemind } = await showFullscreenHintModal();
+  if (localStorage.getItem(FULLSCREEN_HINT_KEY) === '1') return true;
+  const { confirmed, dontRemind } = await showFullscreenHintModal();
   if (dontRemind) {
     localStorage.setItem(FULLSCREEN_HINT_KEY, '1');
   }
+  return confirmed;
 }
 
 function exitFullscreen(restoreButtonLabel = true) {
@@ -208,19 +259,20 @@ function exitFullscreen(restoreButtonLabel = true) {
   fullscreenCorners.setAttribute('aria-hidden', 'true');
   fullscreenCorners.dataset.count = '0';
   if (restoreButtonLabel) {
-    fullscreenBtn.textContent = '全屏';
+    fullscreenBtn.textContent = '⛶';
   }
 }
 
 async function enterFullscreen() {
   if (!isPreviewing) return;
+  const confirmed = await maybeShowFullscreenHint();
+  if (!confirmed) return;
   isFullscreen = true;
   document.body.classList.add('app-fullscreen');
   fullscreenCorners.classList.remove('hidden');
   fullscreenCorners.setAttribute('aria-hidden', 'false');
   fullscreenCorners.dataset.count = '0';
-  fullscreenBtn.textContent = '退出全屏';
-  await maybeShowFullscreenHint();
+  fullscreenBtn.textContent = '退出';
 }
 
 async function onPreview() {
@@ -240,6 +292,7 @@ async function onPreview() {
   enterPreviewMode();
   const base = `${location.pathname.replace(/[^/]*$/, '')}__vfs__/`;
   previewFrame.src = `${base}${entry}`;
+  pauseBtn.textContent = '⏸︎';
 }
 
 function setupResizableSidebar() {
@@ -300,10 +353,11 @@ clearBtn.addEventListener('click', async () => {
   await Promise.all(keys.map((request) => cache.delete(request)));
 });
 
-previewBtn.addEventListener('click', onPreview);
-
 pauseBtn.addEventListener('click', () => {
-  if (!isPreviewing) return;
+  if (!isPreviewing) {
+    onPreview();
+    return;
+  }
   setPaused(!isPaused);
 });
 
@@ -331,6 +385,6 @@ fullscreenCorners.addEventListener('click', (event) => {
 });
 
 setupResizableSidebar();
-pauseBtn.textContent = '⏸︎';
+pauseBtn.textContent = '▶︎';
 stopBtn.textContent = '⏹︎';
 renderTree();
