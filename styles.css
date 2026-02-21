@@ -78,6 +78,10 @@ body.app-fullscreen .pause-mask { inset: 1.35rem 0 0; }
 .modal-checkbox { margin-top: 0.8rem; display: inline-flex; align-items: center; gap: 0.5rem; }
 .modal-actions { margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem; }
 
+.modal-actions-spread { justify-content: space-between; }
+.danger-btn { background: #7f1d1d; border-color: #ef4444; color: #fee2e2; }
+.danger-btn:hover { background: #991b1b; }
+
 @media (max-width: 820px) {
   .toolbar { align-items: flex-start; flex-direction: column; }
   .workspace { min-height: calc(100vh - 120px); }

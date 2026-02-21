@@ -120,6 +120,18 @@
     </div>
   </div>
 
+  <div id="unsavedChangesModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="unsavedChangesModalTitle">
+    <div class="modal-card">
+      <h2 id="unsavedChangesModalTitle">检测到未保存修改</h2>
+      <p id="unsavedChangesModalText">你正在编辑的文件有未保存内容，是否先保存？</p>
+      <div class="modal-actions modal-actions-spread">
+        <button id="discardUnsavedBtn" type="button" class="danger-btn">不保存</button>
+        <button id="cancelUnsavedBtn" type="button">取消</button>
+        <button id="saveUnsavedBtn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div id="fullscreenCorners" class="fullscreen-corners hidden" aria-hidden="true">
     <button class="corner" data-corner="top-left" aria-label="左上角退出触发区"></button>
     <button class="corner" data-corner="top-right" aria-label="右上角退出触发区"></button>
