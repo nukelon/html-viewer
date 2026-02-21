@@ -27,7 +27,7 @@
           <label for="userAgentInput">User Agent</label>
           <input id="userAgentInput" type="text" placeholder="留空使用默认（浏览器限制：仅本地预览可生效）" />
         </div>
-        <input id="entryInput" type="text" value="index" placeholder="输入 html 名称（不含扩展名）或 URL" />
+        <input id="entryInput" type="text" placeholder="输入完整文件名（如 index.html）或 URL" />
         <button id="pauseBtn" type="button">▶︎</button>
         <button id="stopBtn" type="button" class="hidden">停止</button>
         <button id="fullscreenBtn" type="button" class="hidden">⛶</button>
@@ -45,6 +45,9 @@
     <div id="splitter" class="splitter hidden" aria-hidden="true"></div>
 
     <section id="previewPanel" class="preview-panel hidden">
+      <div id="progressTrack" class="progress-track hidden" aria-hidden="true">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
       <iframe id="previewFrame" title="网页预览" allow="fullscreen *"></iframe>
     </section>
   </main>
