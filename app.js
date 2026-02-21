@@ -4,6 +4,9 @@ const clearBtn = document.getElementById('clearBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const stopBtn = document.getElementById('stopBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsMenu = document.getElementById('settingsMenu');
+const userAgentInput = document.getElementById('userAgentInput');
 const entryInput = document.getElementById('entryInput');
 const fileTree = document.getElementById('fileTree');
 const filePanel = document.getElementById('filePanel');
@@ -20,6 +23,7 @@ const confirmFullscreenHintBtn = document.getElementById('confirmFullscreenHintB
 const files = new Map();
 const CACHE_NAME = 'html-viewer-vfs';
 const FULLSCREEN_HINT_KEY = 'html-viewer-hide-fullscreen-hint';
+const USER_AGENT_KEY = 'html-viewer-custom-user-agent';
 let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
@@ -27,6 +31,7 @@ let isFullscreen = false;
 
 const mediaElements = new Set();
 const mediaStateMap = new WeakMap();
+const animationMap = new WeakMap();
 
 function guessMimeType(path) {
   const ext = path.split('.').pop()?.toLowerCase() || '';
@@ -43,16 +48,7 @@ function guessMimeType(path) {
     jpeg: 'image/jpeg',
     gif: 'image/gif',
     webp: 'image/webp',
-    ico: 'image/x-icon',
-    mp3: 'audio/mpeg',
-    wav: 'audio/wav',
-    ogg: 'audio/ogg',
-    m4a: 'audio/mp4',
-    aac: 'audio/aac',
-    flac: 'audio/flac',
-    mp4: 'video/mp4',
-    webm: 'video/webm',
-    ogv: 'video/ogg'
+    ico: 'image/x-icon'
   };
   return table[ext] || 'application/octet-stream';
 }
@@ -173,17 +169,22 @@ function stopPreview() {
   filePanel.style.width = '100%';
   hidePreviewControls();
   pauseBtn.textContent = '▶︎';
+  previewFrame.classList.remove('paused');
 }
 
-function snapshotMediaState(doc) {
+function collectPlayableState(doc) {
   mediaElements.clear();
   if (!doc) return;
-  const elements = doc.querySelectorAll('audio, video');
-  for (const media of elements) {
+
+  const mediaList = doc.querySelectorAll('audio, video');
+  for (const media of mediaList) {
     const wasPlaying = !media.paused && !media.ended;
     mediaStateMap.set(media, wasPlaying);
     mediaElements.add(media);
   }
+
+  const animations = typeof doc.getAnimations === 'function' ? doc.getAnimations({ subtree: true }) : [];
+  animationMap.set(doc, animations);
 }
 
 function setPaused(paused) {
@@ -198,8 +199,13 @@ function setPaused(paused) {
   }
 
   const frameDoc = previewFrame.contentDocument;
+  if (!frameDoc) {
+    pauseBtn.textContent = paused ? '▶︎' : '⏸︎';
+    return;
+  }
+
   if (paused) {
-    snapshotMediaState(frameDoc);
+    collectPlayableState(frameDoc);
     mediaElements.forEach((media) => {
       try {
         media.pause();
@@ -207,18 +213,40 @@ function setPaused(paused) {
         // ignore unsupported media pause errors
       }
     });
+
+    const animations = animationMap.get(frameDoc) || [];
+    animations.forEach((animation) => {
+      try {
+        animation.pause();
+      } catch {
+        // ignore non-pausable animations
+      }
+    });
+
+    frameDoc.documentElement.classList.add('preview-paused');
     pauseBtn.textContent = '▶︎';
     return;
   }
 
+  frameDoc.documentElement.classList.remove('preview-paused');
   pauseBtn.textContent = '⏸︎';
+
   mediaElements.forEach((media) => {
     if (!mediaStateMap.get(media)) return;
     const playResult = media.play();
     if (playResult && typeof playResult.catch === 'function') {
       playResult.catch(() => {
-        // autoplay policy may block; user can interact in iframe to resume
+        // autoplay policy may block
       });
+    }
+  });
+
+  const animations = animationMap.get(frameDoc) || [];
+  animations.forEach((animation) => {
+    try {
+      animation.play();
+    } catch {
+      // ignore non-playable animations
     }
   });
 }
@@ -275,8 +303,43 @@ async function enterFullscreen() {
   fullscreenBtn.textContent = '退出';
 }
 
+function isLikelyUrl(rawValue) {
+  try {
+    const parsed = new URL(rawValue);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function applyCustomUserAgentHint() {
+  const customUA = userAgentInput.value.trim();
+  if (!customUA) return;
+
+  try {
+    const frameWindow = previewFrame.contentWindow;
+    if (!frameWindow) return;
+    Object.defineProperty(frameWindow.navigator, 'userAgent', {
+      configurable: true,
+      get: () => customUA
+    });
+  } catch {
+    // Browsers may block this operation.
+  }
+}
+
 async function onPreview() {
-  const entry = normalizePath(`${entryInput.value.trim() || 'index'}.html`);
+  const inputValue = entryInput.value.trim();
+  if (!inputValue) return;
+
+  if (isLikelyUrl(inputValue)) {
+    enterPreviewMode();
+    previewFrame.src = inputValue;
+    pauseBtn.textContent = '⏸︎';
+    return;
+  }
+
+  const entry = normalizePath(`${inputValue || 'index'}.html`);
   if (!files.has(entry)) {
     alert(`未找到文件：${entry}`);
     return;
@@ -374,6 +437,26 @@ fullscreenBtn.addEventListener('click', async () => {
   await enterFullscreen();
 });
 
+settingsBtn.addEventListener('click', () => {
+  settingsMenu.classList.toggle('hidden');
+});
+
+document.addEventListener('click', (event) => {
+  if (settingsMenu.classList.contains('hidden')) return;
+  if (settingsMenu.contains(event.target) || settingsBtn.contains(event.target)) return;
+  settingsMenu.classList.add('hidden');
+});
+
+userAgentInput.addEventListener('input', () => {
+  localStorage.setItem(USER_AGENT_KEY, userAgentInput.value);
+});
+
+previewFrame.addEventListener('load', () => {
+  applyCustomUserAgentHint();
+  if (!isPaused) return;
+  setPaused(true);
+});
+
 fullscreenCorners.addEventListener('click', (event) => {
   const target = event.target.closest('.corner');
   if (!target || !isFullscreen) return;
@@ -383,6 +466,11 @@ fullscreenCorners.addEventListener('click', (event) => {
     exitFullscreen();
   }
 });
+
+const savedUA = localStorage.getItem(USER_AGENT_KEY);
+if (savedUA) {
+  userAgentInput.value = savedUA;
+}
 
 setupResizableSidebar();
 pauseBtn.textContent = '▶︎';
