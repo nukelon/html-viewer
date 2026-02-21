@@ -257,6 +257,12 @@ function highlightTextContent(text, path) {
   }
 }
 
+window.addEventListener('hljs-ready', () => {
+  if (textPreviewWrap.classList.contains('hidden')) return;
+  const source = textEditor.classList.contains('hidden') ? textPreviewCode.textContent : textEditor.value;
+  highlightTextContent(source || '', currentPreviewFilePath);
+});
+
 function renderTree() {
   fileTree.innerHTML = '';
   const list = [...files.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
