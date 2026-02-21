@@ -41,11 +41,24 @@
     <div id="splitter" class="splitter hidden" aria-hidden="true"></div>
 
     <section id="previewPanel" class="preview-panel hidden">
-      <h2>网页预览</h2>
-      <div id="pauseMask" class="pause-mask hidden">预览已暂停，点击“继续”恢复。</div>
-      <iframe id="previewFrame" title="网页预览"></iframe>
+      <iframe id="previewFrame" title="网页预览" allow="autoplay; fullscreen"></iframe>
     </section>
   </main>
+
+  <div id="fullscreenModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="fullscreenModalTitle">
+    <div class="modal-card">
+      <h2 id="fullscreenModalTitle">全屏提示</h2>
+      <p>全屏模式已开启。连续点击屏幕任意角落（左上/右上/左下/右下）4 次可退出全屏。</p>
+      <label class="modal-checkbox">
+        <input id="dontRemindCheckbox" type="checkbox" />
+        不再提醒
+      </label>
+      <div class="modal-actions">
+        <button id="cancelFullscreenHintBtn" type="button">取消</button>
+        <button id="confirmFullscreenHintBtn" type="button">确定</button>
+      </div>
+    </div>
+  </div>
 
   <div id="fullscreenCorners" class="fullscreen-corners hidden" aria-hidden="true">
     <button class="corner" data-corner="top-left" aria-label="左上角退出触发区"></button>
