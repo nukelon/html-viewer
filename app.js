@@ -53,6 +53,7 @@ let lastKnownFrameUrl = '';
 let previewMode = 'web';
 let currentPreviewFilePath = '';
 let isEditingText = false;
+let textEditorOriginalValue = '';
 
 let progressTimer = null;
 let progressValue = 0;
@@ -392,6 +393,31 @@ function hideAllFilePreviewParts() {
   [imagePreview, videoPreview, audioPreview, textPreviewWrap, textEditor, saveTextBtn].forEach((el) => el.classList.add('hidden'));
 }
 
+function hasUnsavedTextChanges() {
+  return isEditingText && textEditor.value !== textEditorOriginalValue;
+}
+
+function setTextEditingMode(editing) {
+  isEditingText = editing;
+  textEditor.classList.toggle('hidden', !editing);
+  textPreview.classList.toggle('hidden', editing);
+  saveTextBtn.classList.toggle('hidden', !editing);
+  editToggleBtn.textContent = editing ? '取消' : '编辑';
+}
+
+async function ensureTextChangesResolvedBeforeSwitch(nextPath = '') {
+  if (!currentPreviewFilePath || currentPreviewFilePath === nextPath || !hasUnsavedTextChanges()) return true;
+
+  const saveBeforeSwitch = confirm('检测到未保存修改。点击“确定”将保存后切换文件，点击“取消”继续选择是否丢弃修改。');
+  if (saveBeforeSwitch) {
+    await saveTextFile({ silent: true });
+    return true;
+  }
+
+  const discardChanges = confirm('是否丢弃当前未保存修改并切换文件？');
+  return discardChanges;
+}
+
 function enterPreviewMode(mode = 'web') {
   previewMode = mode;
   filePanel.style.width = '25%';
@@ -419,7 +445,8 @@ function stopPreview() {
   suppressNextHistoryPush = false;
   lastKnownFrameUrl = '';
   currentPreviewFilePath = '';
-  isEditingText = false;
+  textEditorOriginalValue = '';
+  setTextEditingMode(false);
   showFrameWarning('');
   previewFrame.src = 'about:blank';
   previewPanel.classList.add('hidden');
@@ -608,6 +635,9 @@ function setupResizableSidebar() {
 }
 
 async function previewFile(path) {
+  const resolved = await ensureTextChangesResolvedBeforeSwitch(path);
+  if (!resolved) return;
+
   const blob = files.get(path);
   if (!blob) return;
   if (isPreviewing && previewMode === 'web') {
@@ -622,7 +652,7 @@ async function previewFile(path) {
   }
 
   currentPreviewFilePath = path;
-  isEditingText = false;
+  setTextEditingMode(false);
   hideAllFilePreviewParts();
   filePreviewMeta.textContent = `预览：${path}`;
 
@@ -639,26 +669,31 @@ async function previewFile(path) {
     audioPreview.classList.remove('hidden');
   } else if (kind === 'text') {
     const text = await blob.text();
+    textEditorOriginalValue = text;
     textPreviewWrap.classList.remove('hidden');
     textEditor.value = text;
     highlightTextContent(text, path);
     textPreview.classList.remove('hidden');
+  } else {
+    textEditorOriginalValue = '';
   }
 
   enterPreviewMode('file');
 }
 
-async function saveTextFile() {
+async function saveTextFile(options = {}) {
+  const { silent = false } = options;
   if (!currentPreviewFilePath) return;
   const text = textEditor.value;
   const mime = guessMimeType(currentPreviewFilePath);
   const blob = new Blob([text], { type: mime });
   files.set(currentPreviewFilePath, blob);
+  textEditorOriginalValue = text;
   renderTree();
   if (isPreviewing && previewMode === 'file') {
     highlightTextContent(text, currentPreviewFilePath);
   }
-  alert('保存成功。');
+  if (!silent) alert('保存成功。');
 }
 
 function downloadBlob(name, blob) {
@@ -715,11 +750,10 @@ fileTree.addEventListener('click', async (event) => {
 });
 
 editToggleBtn.addEventListener('click', () => {
-  isEditingText = !isEditingText;
-  textEditor.classList.toggle('hidden', !isEditingText);
-  textPreview.classList.remove('hidden');
-  saveTextBtn.classList.toggle('hidden', !isEditingText);
-  editToggleBtn.textContent = isEditingText ? '取消' : '编辑';
+  setTextEditingMode(!isEditingText);
+  if (!isEditingText) {
+    highlightTextContent(textEditor.value, currentPreviewFilePath);
+  }
 });
 
 saveTextBtn.addEventListener('click', saveTextFile);
