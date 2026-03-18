@@ -1,4 +1,11 @@
 const CACHE_NAME = 'html-viewer-vfs';
+const APP_SHELL_FILES = new Set(['', 'index.html', 'app.js', 'styles.css', 'sw.js']);
+const CROSS_ORIGIN_ISOLATION_HEADERS = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'cross-origin-isolated=(self)'
+};
 
 const PAUSE_RUNTIME_SNIPPET = `<script>(function(){
   var paused=false;
@@ -107,30 +114,67 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+function withIsolationHeaders(response, body) {
+  const headers = new Headers(response.headers);
+  Object.entries(CROSS_ORIGIN_ISOLATION_HEADERS).forEach(([key, value]) => headers.set(key, value));
+  return new Response(body ?? response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+function isAppShellRequest(url) {
+  const scopePath = new URL(self.registration.scope).pathname;
+  const relativePath = url.pathname.startsWith(scopePath)
+    ? url.pathname.slice(scopePath.length)
+    : url.pathname.replace(/^\/+/, '');
+  return APP_SHELL_FILES.has(relativePath);
+}
+
+async function handleAppShellRequest(request) {
+  const response = await fetch(request);
+  return withIsolationHeaders(response);
+}
+
+async function handleVirtualFileRequest(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const hit = await cache.match(request.url);
+  if (!hit) {
+    return withIsolationHeaders(new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+  }
+
+  const contentType = hit.headers.get('Content-Type') || '';
+  if (!contentType.includes('text/html')) {
+    return withIsolationHeaders(hit);
+  }
+
+  const html = await hit.text();
+  const injected = html.includes('__html_viewer_pause__')
+    ? html
+    : html.includes('</head>')
+      ? html.replace('</head>', `${PAUSE_RUNTIME_SNIPPET}</head>`)
+      : `${PAUSE_RUNTIME_SNIPPET}${html}`;
+
+  return withIsolationHeaders(hit, injected);
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (!url.pathname.includes('/__vfs__/')) return;
+  if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const hit = await cache.match(event.request.url);
-      if (!hit) return new Response('Not Found', { status: 404 });
+  if (url.pathname.includes('/__vfs__/')) {
+    event.respondWith(handleVirtualFileRequest(event.request));
+    return;
+  }
 
-      const contentType = hit.headers.get('Content-Type') || '';
-      if (!contentType.includes('text/html')) return hit;
-
-      const html = await hit.text();
-      if (html.includes('__html_viewer_pause__')) {
-        return new Response(html, { status: hit.status, statusText: hit.statusText, headers: hit.headers });
-      }
-
-      const injected = html.includes('</head>')
-        ? html.replace('</head>', `${PAUSE_RUNTIME_SNIPPET}</head>`)
-        : `${PAUSE_RUNTIME_SNIPPET}${html}`;
-
-      const headers = new Headers(hit.headers);
-      headers.set('Content-Type', contentType || 'text/html; charset=utf-8');
-      return new Response(injected, { status: hit.status, statusText: hit.statusText, headers });
-    })
-  );
+  if (isAppShellRequest(url) || event.request.mode === 'navigate') {
+    event.respondWith(handleAppShellRequest(event.request));
+  }
 });
