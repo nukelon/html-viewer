@@ -47,6 +47,7 @@ const files = new Map();
 const CACHE_NAME = 'html-viewer-vfs';
 const FULLSCREEN_HINT_KEY = 'html-viewer-hide-fullscreen-hint';
 const USER_AGENT_KEY = 'html-viewer-custom-user-agent';
+const SW_RELOAD_KEY = 'html-viewer-sw-cross-origin-isolated-reload';
 let swReady = null;
 let isPreviewing = false;
 let isPaused = false;
@@ -162,11 +163,35 @@ function guessMimeType(path) {
 async function ensureServiceWorker() {
   if (!('serviceWorker' in navigator)) throw new Error('当前浏览器不支持 Service Worker，无法进行完整预览。');
   if (!swReady) {
-    swReady = navigator.serviceWorker.register('./sw.js').then(async () => {
+    swReady = navigator.serviceWorker.register('./sw.js').then(async (registration) => {
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
       await navigator.serviceWorker.ready;
+      return registration;
     });
   }
   return swReady;
+}
+
+function enableCrossOriginIsolationAfterServiceWorkerReady() {
+  if (!('serviceWorker' in navigator)) return;
+  if (window.crossOriginIsolated) {
+    sessionStorage.removeItem(SW_RELOAD_KEY);
+    return;
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (window.crossOriginIsolated) {
+      sessionStorage.removeItem(SW_RELOAD_KEY);
+      return;
+    }
+    if (sessionStorage.getItem(SW_RELOAD_KEY) === '1') return;
+    sessionStorage.setItem(SW_RELOAD_KEY, '1');
+    location.reload();
+  });
+
+  ensureServiceWorker().catch(() => {});
 }
 
 function normalizePath(path) {
@@ -860,6 +885,8 @@ document.addEventListener('click', (event) => {
 });
 
 userAgentInput.addEventListener('input', () => { localStorage.setItem(USER_AGENT_KEY, userAgentInput.value); });
+
+enableCrossOriginIsolationAfterServiceWorkerReady();
 
 previewFrame.addEventListener('load', () => {
   applyCustomUserAgentHint();

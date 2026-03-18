@@ -5,19 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GitHub Pages 在线网页预览器</title>
   <link rel="stylesheet" href="styles.css" />
-  <link id="hljsTheme" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" />
-  <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <link id="hljsTheme" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" crossorigin="anonymous" />
+  <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
   <script>
     (() => {
       const theme = document.getElementById('hljsTheme');
       theme?.addEventListener('error', () => {
         if (theme.dataset.fallback === '1') return;
         theme.dataset.fallback = '1';
+        theme.crossOrigin = 'anonymous';
         theme.href = 'https://unpkg.com/highlight.js@11.11.1/styles/github-dark.min.css';
       });
     })();
   </script>
-  <script id="hljsScript" defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/highlight.min.js"></script>
+  <script id="hljsScript" defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/highlight.min.js" crossorigin="anonymous"></script>
   <script>
     (() => {
       const notifyReady = () => window.dispatchEvent(new Event('hljs-ready'));
@@ -28,6 +29,7 @@
         script.dataset.fallback = '1';
         const fallback = document.createElement('script');
         fallback.defer = true;
+        fallback.crossOrigin = 'anonymous';
         fallback.src = 'https://unpkg.com/highlight.js@11.11.1/highlight.min.js';
         fallback.addEventListener('load', notifyReady);
         document.head.appendChild(fallback);
@@ -86,7 +88,7 @@
         <div id="progressBar" class="progress-bar"></div>
       </div>
       <div id="frameWarning" class="frame-warning hidden" role="alert"></div>
-      <iframe id="previewFrame" title="网页预览" allow="fullscreen *"></iframe>
+      <iframe id="previewFrame" title="网页预览" allow="cross-origin-isolated; fullscreen *"></iframe>
       <div id="filePreviewContainer" class="file-preview hidden">
         <div id="filePreviewMeta" class="file-preview-meta"></div>
         <img id="imagePreview" class="hidden" alt="图片预览" />
